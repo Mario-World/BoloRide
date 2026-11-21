@@ -19,7 +19,7 @@
 
 Edit `server/src/agent.py`:
 
-- **Prompt:** modify the `BOLO_RIDE_PROMPT` constant and preserve its English-only, no-fabricated-business-action guardrails.
+- **Prompt:** modify the `BOLO_RIDE_PROMPT` constant and preserve explicit booking confirmation, backend-authoritative fare/payment, and no-fabricated-business-action guardrails. The configured speech chain is English-only.
 - **Greeting:** change `DEFAULT_GREETING` in `server/src/agent.py`.
 - **VAD:** edit `turn_detection` dict (start/end mode, speech threshold, silence/interrupt durations).
 - **LLM:** change the `OpenAI(...)` constructor (model, history, BYOK key, base URL).

@@ -9,9 +9,10 @@ Build a production-style voice agent with a Next.js web client and Python FastAP
 ## Bolo Ride Foundation
 
 This Agora Python quickstart is the current web voice-agent foundation for Bolo
-Ride. It provides an English conversation path only; it does not search for
-rides, quote fares, create bookings, or process payments. The agent has no
-business tools enabled and must not claim those actions have occurred.
+Ride. It provides an English conversation path and, when configured, a
+server-side tool connection to the separate Bolo Ride business API. Booking
+and payment state remain controlled by that API; the agent runs voice-only if
+the business API configuration is missing.
 
 ## Prerequisites
 
@@ -102,6 +103,9 @@ Primary backend env file: [`server/.env.example`](server/.env.example).
 | `PORT` |  | `8000` | FastAPI server port |
 | `AGENT_ALLOWED_ORIGINS` |  | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated FastAPI CORS origins |
 | `AGENT_BACKEND_URL` (web deploy) | ✅ | — | Required in deployed `web` app when proxying to external FastAPI |
+| `AGENT_PUBLIC_URL` | ✅ for tools | — | Public HTTP(S) base URL reachable by Agora for REST tool callbacks |
+| `BUSINESS_API_URL` | ✅ for tools | — | Business API URL reachable by the voice service; local default is `http://127.0.0.1:8010` |
+| `BUSINESS_API_KEY` | ✅ for tools | — | Server-to-server key; never put this in web or Android configuration |
 
 The configured pipeline is Agora-managed Deepgram `nova-3` ASR
 (`language="en"`), OpenAI `gpt-4o-mini` LLM, and MiniMax
@@ -146,6 +150,7 @@ The browser talks to Next.js `/api/*` routes. In local mode, Next rewrites those
 - FastAPI backend (`server/`) for token generation and agent lifecycle
 - `/api/get_config`, `/api/startAgent`, and `/api/stopAgent` browser-facing contract
 - Managed default pipeline (Deepgram STT, OpenAI LLM, MiniMax TTS)
+- Optional typed ride-booking/payment tools routed to the separate business API
 
 ## How It Works
 
@@ -160,6 +165,9 @@ The browser talks to Next.js `/api/*` routes. In local mode, Next rewrites those
    expiry, the browser renews only the UID/channel bound to its session ticket.
 6. On end, the browser stops the ticket-bound agent, releases microphone/RTC
    resources, and logs out of RTM.
+7. When configured, Agora posts tool calls to the session-token protected voice
+   service, which validates inputs and calls the business API using its
+   server-only `X-API-Key`.
 
 ## Voice Architecture and Runtime
 
@@ -183,6 +191,11 @@ The browser talks to Next.js `/api/*` routes. In local mode, Next rewrites those
   server-side certificate; it is not an Agora certificate or provider key.
   CORS is origin-restricted, but the service has no product-user authentication
   or rate limiting and is not production-ready.
+- **Business tools:** `AGENT_PUBLIC_URL`, `BUSINESS_API_URL`, and
+  `BUSINESS_API_KEY` are server-side settings. Agora must reach the public
+  callback URL; use a public HTTPS tunnel for local voice tests. The LLM can
+  request fare, booking, and payment operations but cannot simulate a payment
+  result; the backend must return `VERIFIED` before success is reported.
 
 For the full sequence, token claims, event mapping, latency notes, and known
 limitations, see [ARCHITECTURE.md](./ARCHITECTURE.md).

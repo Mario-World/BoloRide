@@ -56,6 +56,9 @@ cp .env.example .env
 - `AGORA_APP_ID` - Your Agora App ID (Required)
 - `AGORA_APP_CERTIFICATE` - Your Agora App Certificate (Required)
 - `AGENT_ALLOWED_ORIGINS` - Comma-separated web origins allowed by FastAPI CORS
+- `AGENT_PUBLIC_URL` - Public base URL for Agora server-side REST tool callbacks
+- `BUSINESS_API_URL` - Business API base URL reachable by the voice service
+- `BUSINESS_API_KEY` - Server-only key shared with the business API
 - Agora managed provider access should be enabled for this project
 
 If you still need to authenticate with the CLI:
@@ -82,10 +85,30 @@ agora quickstart env write ..
 **Note**: The service generates RTC/RTM tokens from `AGORA_APP_ID` and
 `AGORA_APP_CERTIFICATE`, and signs short-lived session tickets using a
 domain-separated key derived from the certificate. Both secrets stay server
-side. Third-party vendor keys are not required for the managed chain:
-`DeepgramSTT` (`nova-3`, English) + `OpenAI` (`gpt-4o-mini`) + `MiniMaxTTS`
-(`speech_2_6_turbo` / `English_captivating_female1`). The Bolo Ride prompt has
-no business tools and makes no ride, fare, or payment claims.
+side. The managed chain is `DeepgramSTT` (`nova-3`, English) +
+`OpenAI` (`gpt-4o-mini`) + `MiniMaxTTS`
+(`speech_2_6_turbo` / `English_captivating_female1`).
+
+To enable booking tools, configure all three server-only values:
+
+- `BUSINESS_API_URL` - URL reachable from this FastAPI service, e.g.
+  `http://127.0.0.1:8010` for the local business API.
+- `BUSINESS_API_KEY` - the same server-only key configured on the business API.
+- `AGENT_PUBLIC_URL` - absolute HTTP(S) URL through which Agora's service can
+  reach this FastAPI instance. Local voice-agent tests require a public HTTPS
+  tunnel; `localhost` is not reachable by Agora.
+
+The Agora service exposes a narrow REST tool set backed by the business API:
+validate details, estimate fare, create/retrieve/cancel a booking, and create,
+retrieve, or verify a payment. Booking creation requires a current backend fare
+and explicit passenger confirmation. Payment simulation is deliberately not an
+LLM-callable tool; an order is not successful until the backend returns
+`VERIFIED`. The business API and its database remain authoritative.
+
+If any tool configuration value is missing, the agent starts in voice-only
+mode and must not claim to book a ride or process a payment. See the parent
+[voice-agent architecture](../ARCHITECTURE.md) for the complete tool flow and
+known limitations.
 
 ### 2. Install Dependencies
 
@@ -143,7 +166,7 @@ The browser renews the same concrete RTC/RTM UID before the one-hour token
 expires. FastAPI restricts CORS through `AGENT_ALLOWED_ORIGINS`; this does not
 replace product authentication or rate limiting.
 
-The repo-level `bun run verify:local:fastapi` check exercises this FastAPI app through the Next proxy path, but it swaps in a fake agent implementation so route wiring can be verified without depending on a live agent start.
+The repo-level `bun run verify:local:fastapi` check exercises this FastAPI app through the Next proxy path, but it swaps in a fake agent implementation so route wiring can be verified without depending on a live agent start. Python unit tests use fake Agora sessions and a fake business API; passing them does not verify a live Agora call or public tunnel.
 
 ## Requirements
 

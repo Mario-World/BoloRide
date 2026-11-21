@@ -17,11 +17,13 @@ from dotenv import load_dotenv
 _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_base_dir, ".env"))
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError
 from agora_agent.agentkit.token import generate_convo_ai_token
 from agent import Agent
+from booking_tools import BusinessApiError, ToolRequestError
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -372,6 +374,60 @@ async def stop_agent(request: StopAgentRequest):
     except Exception as exc:
         _log_route_error("/stopAgent", exc, agent_id=request.agentId)
         raise _to_http_error(exc)
+
+
+@router.post("/v1/agent-tools/{tool_name}")
+async def invoke_agent_tool(
+    tool_name: str,
+    payload: Dict[str, Any] = Body(...),
+    authorization: Optional[str] = Header(default=None),
+):
+    """Receive Agora's session-scoped tool calls and proxy validated business requests."""
+    if agent is None or not callable(getattr(agent, "invoke_tool", None)):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "booking_tools_disabled", "message": "Booking tools are not configured."},
+        )
+
+    try:
+        result = await agent.invoke_tool(authorization or "", tool_name, payload)
+        logger.info("agent_tool_completed tool_name=%s", tool_name)
+        return result
+    except ToolRequestError as exc:
+        logger.warning(
+            "agent_tool_rejected tool_name=%s status_code=%s code=%s",
+            tool_name,
+            exc.status_code,
+            exc.code,
+        )
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        )
+    except ValidationError as exc:
+        logger.warning(
+            "agent_tool_invalid_arguments tool_name=%s error_count=%s",
+            tool_name,
+            len(exc.errors()),
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_tool_arguments", "errors": exc.errors(include_context=False)},
+        )
+    except BusinessApiError as exc:
+        _log_route_error(
+            "/v1/agent-tools",
+            exc,
+            tool_name=tool_name,
+            status_code=exc.status_code,
+        )
+        return JSONResponse(status_code=exc.status_code, content=exc.payload)
+    except Exception as exc:
+        _log_route_error("/v1/agent-tools", exc, tool_name=tool_name)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "booking_tool_failed", "message": "The booking action could not be completed."},
+        )
 
 
 app.include_router(router)

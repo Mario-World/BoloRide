@@ -227,6 +227,59 @@ def test_runtime_error_maps_to_sanitized_500(client, server_module):
     assert "internal provider details" not in response.text
 
 
+def test_agent_tool_route_uses_session_auth_and_returns_structured_results(client, server_module):
+    class ToolAgent:
+        async def invoke_tool(self, authorization, tool_name, payload):
+            assert authorization == "Bearer session-scoped-token"
+            assert tool_name == "validate_booking_details"
+            assert payload["pickup_location"] == "Madhapur"
+            return {"status": "needs_details", "missing_fields": ["destination"]}
+
+    server_module.agent = ToolAgent()
+    response = client.post(
+        "/v1/agent-tools/validate_booking_details",
+        headers={"Authorization": "Bearer session-scoped-token"},
+        json={"pickup_location": "Madhapur"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "needs_details",
+        "missing_fields": ["destination"],
+    }
+
+
+def test_agent_tool_route_rejects_missing_or_invalid_session_auth(client, server_module):
+    from booking_tools import ToolRequestError
+
+    class ToolAgent:
+        async def invoke_tool(self, authorization, tool_name, payload):
+            raise ToolRequestError(401, "invalid_tool_session", "This voice session is no longer active.")
+
+    server_module.agent = ToolAgent()
+    response = client.post(
+        "/v1/agent-tools/estimate_fare",
+        json={},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "invalid_tool_session"
+
+
+def test_agent_tool_route_discloses_no_backend_details_on_unexpected_failure(client, server_module):
+    class ToolAgent:
+        async def invoke_tool(self, authorization, tool_name, payload):
+            raise RuntimeError("private upstream credentials")
+
+    server_module.agent = ToolAgent()
+    response = client.post(
+        "/v1/agent-tools/estimate_fare",
+        headers={"Authorization": "Bearer session-token"},
+        json={},
+    )
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "booking_tool_failed"
+    assert "private upstream credentials" not in response.text
+
+
 def test_misconfigured_agent_returns_500(client, server_module):
     server_module.agent = None
     assert client.get("/get_config").status_code == 500

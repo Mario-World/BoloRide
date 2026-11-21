@@ -79,10 +79,14 @@ return {"agent_id": agent_id, "channel_name": channel_name, "status": "started"}
 
 The configured models are Deepgram `nova-3` (`language="en"`), OpenAI
 `gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`.
-The Bolo Ride prompt is English-only, states that business actions are not
-available, and forbids unsupported booking/payment claims. No tools are enabled.
-Keep examples aligned with `server/src/agent.py` and the installed SDK; model
-and language support must not be inferred from a provider name.
+The Bolo Ride prompt is English-only. When `AGENT_PUBLIC_URL`,
+`BUSINESS_API_URL`, and `BUSINESS_API_KEY` are configured, `OpenAI` receives
+the typed REST tools and `advanced_features.enable_tools` is enabled; otherwise
+the voice-only prompt explicitly says booking tools are unavailable. Booking
+requires explicit passenger confirmation and payment success requires backend
+verification. Keep examples aligned with `server/src/agent.py` and the
+installed SDK; model and language support must not be inferred from a provider
+name.
 
 ## Editing Each Surface
 

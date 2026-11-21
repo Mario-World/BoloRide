@@ -13,6 +13,7 @@ flowchart LR
   Next["Next.js /api/* rewrite"]
   API["FastAPI server"]
   Agent["Agora Agent SDK session"]
+  Business["FastAPI business API"]
   Models["Agora-managed Deepgram ASR → OpenAI LLM → MiniMax TTS"]
 
   Browser -->|mic audio / remote playback| RTC
@@ -20,6 +21,8 @@ flowchart LR
   Next --> API
   API -->|signed-token generation| Browser
   API --> Agent
+  Agent -->|session-token REST tools| Business
+  Business -->|structured results| Agent
   Agent --> Models
   Models -->|speech response / transcript / state / metrics| RTC
 ```
@@ -27,13 +30,19 @@ flowchart LR
 - `web/` owns browser microphone capture and publishing, RTC joining and remote
   playback, RTM login/subscription, transcript display, runtime event display,
   token renewal, and user-triggered teardown.
-- `server/src/server.py` owns CORS, token issuance, session-ticket checks, and
-  the HTTP contract. `server/src/agent.py` owns the Agora SDK client, the
-  managed model chain, VAD settings, and agent start/stop lifecycle.
+- `server/src/server.py` owns CORS, token issuance, session-ticket checks, the
+  HTTP contract, and the session-protected REST tool callback. `server/src/agent.py`
+  owns the Agora SDK client, managed model chain, VAD settings, and agent
+  start/stop lifecycle.
+- `server/src/booking_tools.py` owns typed tool schemas, per-voice-session
+  conversation state, server-only business API authentication, idempotency
+  keys, and structured upstream error handling. It never connects to the
+  database directly.
 - `web/next.config.ts` rewrites browser `/api/*` requests to FastAPI. The
   browser never imports Agora server credentials or provider API keys.
-- No booking, fare, ride-provider, payment, database, or business-tool layer
-  exists in this foundation.
+- `services/business-api/` remains the source of truth for fare validation,
+  bookings, and payment verification; the voice service reaches it only over
+  authenticated server-to-server HTTP.
 
 ## Audio Flow
 
@@ -68,10 +77,34 @@ setting do not establish support or quality for Telugu, Hindi, Kannada, or
 code-mixed speech. Those need explicit provider documentation review and live
 language-specific validation before being advertised.
 
-The Bolo Ride system prompt is intentionally limited to conversation: this
-prototype has no ride or payment tools, does not quote fares, and must not claim
-that a ride was booked or payment succeeded. `advanced_features.enable_tools`
-is false.
+When `BUSINESS_API_URL`, `BUSINESS_API_KEY`, and `AGENT_PUBLIC_URL` are all
+configured, the Bolo Ride system prompt enables narrow booking tools and
+`advanced_features.enable_tools` is true. Otherwise, the agent uses a
+voice-only prompt that prohibits booking, fare, and payment claims.
+
+## Booking Tool Flow
+
+1. Agent startup creates an unpredictable per-session bearer token and injects
+   it into Agora's REST tool template variables. The business API key remains
+   only in the voice service environment.
+2. Agora POSTs the selected tool's structured JSON to
+   `AGENT_PUBLIC_URL/v1/agent-tools/{tool_name}`. That URL must be reachable
+   from Agora; for local development it requires a public HTTPS tunnel to the
+   voice service.
+3. FastAPI checks the session token, validates the Pydantic input, serializes
+   operations for that voice session, and calls the business API using
+   `X-API-Key`.
+4. The business API revalidates details and fare, stores bookings/payments, and
+   enforces durable idempotency. Booking creation requires an explicit
+   passenger confirmation after reading back the current fare. Only
+   `verify_payment` returning `VERIFIED` can be described as successful.
+5. Session stop revokes the tool token. Mock payment simulation is not exposed
+   to the LLM.
+
+Conversation state is process-local and separate from database state. A voice
+service restart loses current conversational context, but does not erase
+business records. The current prototype has no rider authentication, so do not
+expose it publicly as a production service.
 
 ## RTC/RTM Session Lifecycle
 
@@ -165,8 +198,9 @@ be measured before setting a performance target.
 - No durable transcripts or backend runtime-event ingestion/webhooks.
 - RTM resubscription and agent recovery after a later network interruption
   have not been verified in a live call.
-- No ride lookup, fare estimation, booking confirmation, mock payment, or
-  business API/tool integration.
+- Tool calls require a public route reachable by Agora and server-side
+  `AGENT_PUBLIC_URL`, `BUSINESS_API_URL`, and `BUSINESS_API_KEY` configuration.
+- No rider authentication, rate limiting, or durable voice-conversation state.
 - The root Android quickstart is not yet a client of this Python service.
 - Automated tests use fake agents/tokens and do not establish live Agora
   credentials, network connectivity, microphone capture, or audio playback.

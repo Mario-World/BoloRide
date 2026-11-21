@@ -17,7 +17,7 @@ export default function DemoPage() {
           className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span aria-hidden="true">←</span>
-          Agora voice starter
+          Bolo Ride voice assistant
         </Link>
         <BoloRideDemo />
       </div>

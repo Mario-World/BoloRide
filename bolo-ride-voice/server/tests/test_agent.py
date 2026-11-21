@@ -28,6 +28,8 @@ def test_agent_constructs_with_full_env(fake_env):
 
 
 def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
+    for key in ("BUSINESS_API_URL", "BUSINESS_API_KEY", "AGENT_PUBLIC_URL"):
+        monkeypatch.delenv(key, raising=False)
     agent = _fresh_agent_module()
     captured = {}
     original_agent_builder = agent.AgoraAgent
@@ -102,6 +104,64 @@ def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
         ]
         == 160
     )
+
+
+def test_start_enables_session_scoped_business_tools_when_configured(fake_env, monkeypatch):
+    monkeypatch.setenv("BUSINESS_API_URL", "http://business-api.local")
+    monkeypatch.setenv("BUSINESS_API_KEY", "business-secret-for-test")
+    monkeypatch.setenv("AGENT_PUBLIC_URL", "https://voice.example.com")
+    agent = _fresh_agent_module()
+    captured = {}
+    original_agent_builder = agent.AgoraAgent
+
+    def capture_agent_builder(**kwargs):
+        captured["agent_config"] = kwargs
+        return original_agent_builder(**kwargs)
+
+    monkeypatch.setattr(agent, "AgoraAgent", capture_agent_builder)
+
+    class FakeSession:
+        async def start(self):
+            return "tool-enabled-agent"
+
+        async def stop(self):
+            captured["stopped"] = True
+
+    def fake_create_session(self, **kwargs):
+        captured["llm"] = self.llm
+        return FakeSession()
+
+    monkeypatch.setattr(original_agent_builder, "create_async_session", fake_create_session)
+
+    instance = agent.Agent()
+    result = asyncio.run(instance.start(channel_name="ch", agent_uid=111, user_uid=222))
+
+    assert result["agent_id"] == "tool-enabled-agent"
+    assert captured["agent_config"]["advanced_features"]["enable_tools"] is True
+    assert "explicitly confirms" in captured["agent_config"]["instructions"]
+    tool_names = {tool["function"]["name"] for tool in captured["llm"]["tools"]}
+    assert {
+        "validate_booking_details",
+        "estimate_fare",
+        "create_booking",
+        "get_booking_status",
+        "cancel_booking",
+        "create_payment_order",
+        "get_payment_status",
+        "verify_payment",
+    }.issubset(tool_names)
+    assert "simulate_payment_result" not in tool_names
+    assert "business-secret-for-test" not in repr(captured["llm"])
+    assert captured["llm"]["tools"][0]["server"]["headers"] == {
+        "Authorization": "Bearer {{template_variables.bolo_tool_token}}"
+    }
+
+    tool_token = captured["llm"]["template_variables"]["bolo_tool_token"]
+    asyncio.run(instance.stop("tool-enabled-agent"))
+    assert captured["stopped"] is True
+    with pytest.raises(agent.ToolRequestError) as error:
+        asyncio.run(instance.tool_registry.invoke(tool_token, "estimate_fare", {}))
+    assert error.value.status_code == 401
 
 
 def test_start_validates_arguments(fake_env, monkeypatch):

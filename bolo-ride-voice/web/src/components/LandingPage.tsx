@@ -278,7 +278,7 @@ export default function LandingPage() {
 
 			<footer
 				className={`fixed inset-x-0 bottom-0 z-40 flex items-center gap-4 px-4 py-4 md:px-6 md:py-6 ${
-					showConversation ? "justify-end" : "justify-between"
+					showConversation ? "hidden" : "justify-between"
 				}`}
 			>
 				{!showConversation ? <ShareButton menuPlacement="top" /> : null}
@@ -300,6 +300,7 @@ export default function LandingPage() {
 							height={24}
 							priority
 							className="h-6 w-auto translate-y-1 transition-opacity hover:opacity-80"
+							style={{ width: "auto" }}
 						/>
 						<span className="sr-only">Agora</span>
 					</a>

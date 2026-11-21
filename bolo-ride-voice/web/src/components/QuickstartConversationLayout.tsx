@@ -24,7 +24,7 @@ export function QuickstartConversationLayout({
 }: QuickstartConversationLayoutProps) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col text-left">
-			<header className="flex shrink-0 flex-col gap-4 border-b border-border px-4 py-4 md:h-[76px] md:flex-row md:items-center md:justify-between md:px-6 md:py-0">
+			<header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-3 md:h-[76px] md:py-0">
 				<div className="flex min-w-0 items-center gap-3">
 					<Image
 						src="/agora-logo-mark.svg"
@@ -35,18 +35,19 @@ export function QuickstartConversationLayout({
 					/>
 					<div className="flex min-w-0 flex-col justify-center gap-1">
 						<span className="truncate text-lg font-semibold leading-none tracking-[-0.025em] text-foreground">
-							Agora Conversational AI
+							Bolo Ride
 						</span>
+						<span className="text-xs text-muted-foreground">Voice booking · English demo</span>
 						{pipelineMetrics}
 					</div>
 				</div>
 
-				<div className="flex items-center gap-2 md:pr-1">
+				<div className="flex items-center justify-between gap-3 sm:justify-end md:pr-1">
 					{statusPanel}
 					<Button
 						variant="destructive"
 						size="sm"
-						className="h-8 rounded-md border border-destructive bg-transparent px-3 text-xs font-medium text-destructive hover:bg-destructive/10"
+						className="min-h-11 rounded-md border border-destructive bg-transparent px-4 text-xs font-medium text-destructive hover:bg-destructive/10"
 						onClick={onEndConversation}
 						aria-label="End conversation with AI agent"
 						title="End conversation"
@@ -56,13 +57,13 @@ export function QuickstartConversationLayout({
 				</div>
 			</header>
 
-			<div className="flex min-h-0 w-full flex-1 flex-col gap-4 px-4 pb-4 pt-4 md:px-6 lg:flex-row lg:gap-0">
-				<aside className="order-2 h-64 min-h-0 w-full shrink-0 lg:order-1 lg:h-full lg:w-[26rem]">
+			<div className="flex min-h-0 w-full flex-1 flex-col gap-3 px-3 pb-3 pt-3 sm:gap-4 sm:px-4 md:px-6 lg:flex-row lg:gap-0">
+				<aside className="order-2 h-40 min-h-0 w-full shrink-0 sm:h-56 lg:order-1 lg:h-full lg:w-[26rem]">
 					{transcriptPanel}
 				</aside>
 
 				<main className="order-1 flex min-h-0 flex-1 flex-col lg:order-2 lg:border-l lg:border-border/80 lg:pl-6">
-					<div className="flex min-h-0 flex-1 flex-col pb-2 pt-3 md:pb-6">
+					<div className="flex min-h-0 flex-1 flex-col pb-1 pt-1 sm:pb-3 sm:pt-3 md:pb-6">
 						<div className="flex min-h-0 flex-1 items-center justify-center">
 							{visualizer}
 						</div>

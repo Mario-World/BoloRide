@@ -454,7 +454,7 @@ export default function ConversationComponent({
 			}
 			visualizer={
 				<section
-					className="relative flex h-full min-h-[20rem] w-full max-w-4xl items-center justify-center"
+					className="relative flex h-full min-h-[10rem] w-full max-w-4xl items-center justify-center sm:min-h-[20rem]"
 					aria-label="AI agent status visualization"
 				>
 					<AgentVisualizer state={visualizerState} size="lg" />

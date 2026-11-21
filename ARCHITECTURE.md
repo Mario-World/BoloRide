@@ -1,8 +1,9 @@
 # Bolo Ride Architecture
 
 **Status:** The Agora voice foundation, isolated booking/payment API, and local
-web booking demo are present. The live Agora agent, web demo, and Android
-client are not yet integrated into one end-to-end voice booking flow.
+web booking demo are present. The Python agent now has an optional,
+session-scoped server-to-server tool path to the booking API. A live Agora
+voice session and end-to-end voice booking flow have not been verified.
 
 ## Current Architecture
 
@@ -20,6 +21,7 @@ flowchart LR
     Web["Next.js / React"] -->|"/api/* rewrites"| WebAPI["FastAPI: server/src"]
     Web --> Agora
     WebAPI --> Agora
+    WebAPI -->|session-token REST tools| Business["FastAPI business API"]
   end
 
   Demo["Next.js /demo"] -->|server-side API key proxy| Business["FastAPI: services/business-api"]
@@ -34,16 +36,17 @@ flowchart LR
 | Root Android client | Compose screen, microphone/audio controls, RTC/RTM session management, transcripts, interruption, and token renewal under `app/`. | A conversation demo, not a ride-booking UI. |
 | Root FastAPI service | `server/app/` issues tokens and manages Agora sessions; `server/app/session_store.py` keeps session state in memory. | No business API or persistent ride state. |
 | Nested web client | `bolo-ride-voice/web/` is a Next.js 16/React 19 voice client; it uses Agora RTC/RTM and rewrites `/api/*` to FastAPI. | A separate voice app, not integrated with the Android client. |
-| Nested FastAPI service | `bolo-ride-voice/server/src/` owns Agora token generation and agent start/stop; signed session tickets bind renewal and lifecycle requests to a generated session. | Session bookkeeping remains process-local; no ride, fare, or payment domain. |
+| Nested FastAPI service | `bolo-ride-voice/server/src/` owns Agora token generation and agent lifecycle; session-scoped REST tools proxy validated calls to the business API. | Live Agora callbacks/public tunnel unverified; voice conversation state remains process-local. |
 | Agora pipeline | The Python service uses managed Deepgram `nova-3` (`language="en"`), OpenAI `gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`. | English-only configuration; Telugu, Hindi, Kannada, and code-mixed speech are not claimed or tested. |
 | Business API | `services/business-api/` owns typed fare, booking, simulated driver, and mock-payment routes; SQLAlchemy models and an Alembic initial migration persist records. | The API key is server-only; product-user authentication and production provider integrations are not implemented. |
-| Web booking demo | `/demo` calls the business API through an allowlisted Next.js route handler that injects `BUSINESS_API_KEY` server-side. | A manual click-through demo, not connected to the Agora transcript or live voice agent. |
+| Web booking demo | `/demo` calls the business API through an allowlisted Next.js route handler that injects `BUSINESS_API_KEY` server-side. | Manual click-through demo, not connected to the Agora transcript. |
 | Persistence | PostgreSQL is the configured runtime database; integration tests and migration checks use SQLite. | Live PostgreSQL startup and production concurrency behavior have not been verified. |
 
-The two services expose different session APIs and should not be treated as
-interchangeable. The root service uses versioned `/v1/conversation/*` routes;
-the nested quickstart uses `/get_config`, `/startAgent`, and `/stopAgent`.
-No route contract currently represents a ride, fare, booking, or payment.
+The two voice services expose different session APIs and should not be treated
+as interchangeable. The root service uses versioned `/v1/conversation/*`
+routes; the nested quickstart uses `/get_config`, `/startAgent`, and
+`/stopAgent`. The business API owns the separate `/v1` ride and payment
+contracts.
 
 The nested `bolo-ride-voice/server/.env` exists locally and is ignored by that
 subtree's `server/.gitignore`. Its contents were not read. Keep it and all
@@ -56,6 +59,10 @@ contains or replaces the Agora App Certificate.
 - Both implementations keep the Agora App Certificate on a Python server.
 - The business API requires `X-API-Key`; the web client calls only the
   allowlisted Next.js proxy, so the key is not included in browser bundles.
+- The Python voice service keeps the business API key server-side and exposes
+  only narrow REST tools protected by a random per-session bearer token.
+- The Agora tool callback must use a public reachable `AGENT_PUBLIC_URL`; live
+  callback reachability has not yet been verified.
 - Neither implementation has product-user authentication for business actions;
   the local demo credentials and mock routes are not suitable for production.
 - The nested service restricts CORS to configured origins and binds token
@@ -95,8 +102,8 @@ flowchart LR
   presentation, and an explicit confirmation step. It does not hold Agora
   certificates, provider secrets, or authoritative booking/payment state.
 - **Agora voice-agent service:** Agora token/session lifecycle, ASR/LLM/TTS
-  configuration, language-aware conversation, and narrowly scoped tool
-  adapters. It does not connect directly to PostgreSQL or mutate domain state.
+  configuration, English conversation, and narrowly scoped tool adapters. It
+  calls only the business API and never connects directly to PostgreSQL.
 - **FastAPI business API:** authenticated, typed domain operations; server-side
   validation and authorization; fare quotes; booking state transitions; mock
   provider calls; payment verification; idempotency and audit records.
@@ -169,8 +176,8 @@ status.
 
 ## Missing Components
 
-- Connect the voice agent to the business API through typed server-to-server
-  tools; keep mock outcome simulation out of model-callable tools.
+- Verify live Agora tool callbacks through a public HTTPS endpoint; the
+  business API integration currently has automated tests only.
 - Integrate the business API with the Android client while keeping its API key
   server-side.
 - Telugu, Hindi, and Kannada pipeline configuration and end-to-end voice tests.

@@ -2,9 +2,9 @@
 
 Bolo Ride is a voice-first ride-booking application targeting Telugu, Hindi,
 Kannada, and English. The workspace preserves two separate Agora voice
-quickstarts and now includes an isolated simulated booking/payment API plus a
-watchable web demo. The booking flow is not yet connected to the live Agora
-conversation or Android client.
+quickstarts and includes an isolated simulated booking/payment API, a watchable
+web demo, and an optional server-side tool path from the Python Agora agent to
+the business API.
 
 ## Current Workspace
 
@@ -13,7 +13,7 @@ conversation or Android client.
 | `app/` | Tracked Kotlin + Jetpack Compose Agora voice-conversation demo. |
 | `server/app/` | Tracked FastAPI service for Agora tokens, conversation lifecycle, and an in-memory session store. |
 | `bolo-ride-voice/web/` | Next.js voice client for the Agora Python quickstart foundation. |
-| `bolo-ride-voice/server/` | FastAPI Agora-agent service with Bolo Ride's English-only conversation prompt. Separate from root `server/app/`. |
+| `bolo-ride-voice/server/` | FastAPI Agora-agent service with English voice tools that call the separate business API when configured. Separate from root `server/app/`. |
 | `services/business-api/` | Separate FastAPI business API, SQLAlchemy persistence, Alembic migration, deterministic ride simulator, and mock payments. |
 | `docker-compose.demo.yml` | Local PostgreSQL + business API + Next.js demo stack. |
 | `docs/` | Setup and architecture guidance for the tracked Android quickstart. |
@@ -60,10 +60,25 @@ See [the business API guide](services/business-api/README.md) and
 [API contract](services/business-api/API.md) for environment variables,
 migrations, routes, and test scope.
 
+## Voice-Agent Tools
+
+The Python Agora service can validate trip details, estimate a backend fare,
+create a booking after explicit passenger confirmation, retrieve/cancel a
+booking, and create/retrieve/verify a mock payment. The voice service makes
+server-to-server calls; the business API remains authoritative. It does not
+expose the mock payment-result endpoint to the LLM.
+
+To enable tools, configure `AGENT_PUBLIC_URL`, `BUSINESS_API_URL`, and
+`BUSINESS_API_KEY` in `bolo-ride-voice/server/.env`. Agora must be able to
+reach `AGENT_PUBLIC_URL`; for local voice tests, expose the voice service
+through a public HTTPS tunnel. See
+[voice-agent setup](bolo-ride-voice/server/README.md) and
+[voice architecture](bolo-ride-voice/ARCHITECTURE.md).
+
 ## Current Gaps
 
-- Booking and payment APIs are not yet connected as tools to the Agora agent or
-  integrated into the Android client.
+- Live Agora tool calls and public tunnel configuration have not been tested;
+  Android is not integrated with the booking API.
 - The Agora Python foundation is configured for English; Telugu, Hindi,
   Kannada, and code-mixed speech have not been verified.
 - The Compose app remains the Agora quickstart interface, not the complete
