@@ -10,24 +10,24 @@ quickstarts; it does not yet contain the ride-booking business system.
 | --- | --- |
 | `app/` | Tracked Kotlin + Jetpack Compose Agora voice-conversation demo. |
 | `server/app/` | Tracked FastAPI service for Agora tokens, conversation lifecycle, and an in-memory session store. |
-| `bolo-ride-voice/web/` | Untracked Next.js voice-conversation prototype from the Agora Python quickstart. |
-| `bolo-ride-voice/server/` | Untracked FastAPI Agora-agent service. This is separate from the root `server/app/` service. |
+| `bolo-ride-voice/web/` | Next.js voice client for the Agora Python quickstart foundation. |
+| `bolo-ride-voice/server/` | FastAPI Agora-agent service with Bolo Ride's English-only conversation prompt. Separate from root `server/app/`. |
 | `docs/` | Setup and architecture guidance for the tracked Android quickstart. |
 
-`bolo-ride-voice/` is present in the workspace but is not tracked by the root
-Git repository. It has its own `server/.env` file, which is ignored by its
-local `.gitignore`; review the subtree and its ignore rules before staging it.
-No files have been moved or merged.
+The Agora Python foundation remains a separate implementation from the root
+Android quickstart; no files have been moved or merged. Its local
+`server/.env` is ignored by the subtree's `.gitignore`. Keep credentials out of
+the frontend and Android client.
 
 ## Current Gaps
 
 - No PostgreSQL persistence or business API exists in either project tree.
 - Fare estimation, ride-provider integration, booking confirmation, mock
   payments, and server-side payment verification are not implemented.
-- Both voice-agent examples use English ASR/TTS defaults; the requested
-  multilingual experience is not implemented.
-- The two FastAPI services are independent quickstart implementations, not one
-  integrated Bolo Ride backend.
+- The Agora Python foundation is configured for English; Telugu, Hindi,
+  Kannada, and code-mixed speech have not been verified.
+- No authenticated ride/business API, fare estimation, booking, or payment
+  implementation is integrated with either voice demo.
 
 ## Architecture and Plan
 
@@ -37,9 +37,9 @@ No files have been moved or merged.
 - [Existing Android architecture](docs/architecture.md)
 - [Agora Python + Next.js prototype documentation](bolo-ride-voice/README.md)
 
-The roadmap is documentation only. The existing implementations remain
-untouched pending approval of a canonical project layout and the migration
-sequence.
+The Agora Python quickstart now provides the English voice-agent foundation.
+The Android quickstart remains separate; the roadmap still gates broader
+consolidation and ride-business implementation.
 
 ## Existing Android Quickstart
 

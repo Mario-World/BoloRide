@@ -4,7 +4,10 @@
 
 ## Where It Lives
 
-All managed agent configuration is in `server/src/agent.py`. The browser sends `{ channelName, rtcUid, userUid }` to `POST /startAgent`, which the FastAPI handler forwards to `agent.start(...)`. That method builds an SDK-driven agent and creates an async session.
+All managed agent configuration is in `server/src/agent.py`. The browser sends
+`{ channelName, rtcUid, userUid, sessionTicket }` to `POST /startAgent`. FastAPI
+validates the signed session ticket before forwarding the session identity to
+`agent.start(...)`.
 
 ## The Agent Builder Chain
 
@@ -24,20 +27,28 @@ self.client = AsyncAgora(
 
 # --- at start() time ---
 agora_agent = AgoraAgent(
+    client=self.client,
     name=f"agent_{channel_name}_{agent_uid}_{int(time.time())}",
-    instructions=ADA_PROMPT,
+    instructions=BOLO_RIDE_PROMPT,
     greeting=self.greeting,
     failure_message="Please wait a moment.",
     max_history=50,
     turn_detection={
         "config": {
             "speech_threshold": 0.5,
-            "start_of_speech": { /* VAD on-start params */ },
-            "end_of_speech":   { /* VAD on-end params */ },
+            "start_of_speech": {
+                "mode": "vad",
+                "vad_config": {"interrupt_duration_ms": 160, "prefix_padding_ms": 300},
+            },
+            "end_of_speech": {
+                "mode": "vad",
+                "vad_config": {"silence_duration_ms": 480},
+            },
         },
     },
-    advanced_features={"enable_rtm": True, "enable_tools": True},
+    advanced_features={"enable_rtm": True, "enable_tools": False},
     parameters={
+        "audio_scenario": "chorus",
         "data_channel": "rtm",
         "enable_error_message": True,
         "enable_metrics": True,
@@ -55,7 +66,6 @@ agora_agent = AgoraAgent(
 
 # create_async_session is synchronous; start() is async
 session = agora_agent.create_async_session(
-    client=self.client,
     channel=channel_name,
     agent_uid=str(agent_uid),
     remote_uids=[str(user_uid)],
@@ -67,13 +77,19 @@ agent_id = await session.start()
 return {"agent_id": agent_id, "channel_name": channel_name, "status": "started"}
 ```
 
-The exact field names track `agora-agents`. The requirement is unpinned in `server/requirements.txt`, so re-verify field names after upgrades.
+The configured models are Deepgram `nova-3` (`language="en"`), OpenAI
+`gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`.
+The Bolo Ride prompt is English-only, states that business actions are not
+available, and forbids unsupported booking/payment claims. No tools are enabled.
+Keep examples aligned with `server/src/agent.py` and the installed SDK; model
+and language support must not be inferred from a provider name.
 
 ## Editing Each Surface
 
 ### Change the prompt
 
-Edit the `ADA_PROMPT` string constant at the top of `agent.py`. Keep it concise — long prompts amplify LLM latency.
+Edit the `BOLO_RIDE_PROMPT` string constant at the top of `agent.py`. Keep it
+concise and preserve the no-fabricated-booking/payment constraints.
 
 ### Change the greeting
 
@@ -117,7 +133,8 @@ Do not hold per-request state on `Agent`. If you need correlation, use the retur
 
 ## Response Contract
 
-`startAgent` returns:
+The `agent.start` method returns its agent ID and status. FastAPI adds a ticket
+bound to the returned agent ID. The HTTP response is:
 
 ```json
 {
@@ -126,18 +143,24 @@ Do not hold per-request state on `Agent`. If you need correlation, use the retur
   "data": {
     "agent_id": "string",
     "channel_name": "string",
-    "status": "started"
+    "status": "started",
+    "session_ticket": "signed agent-session capability"
   }
 }
 ```
 
-The client stores `agent_id` in `agoraData` and later passes it to `/api/stopAgent`.
+The client stores the agent-bound ticket and passes it with the identity to
+`/api/stopAgent`.
 
-Stop is idempotent: `Agent.stop` tries `session.stop()` on the in-memory session first, and falls back to `self.client.stop_agent(agent_id)` if the session is stale or already gone. Both paths succeed without error.
+`Agent.stop` tries `session.stop()` on the in-memory session first, and falls
+back to `self.client.stop_agent(agent_id)` if the session is stale or already
+gone. Session state is process-local.
 
 ## Verification
 
-`bun run verify:backend` runs `py_compile` so syntax errors surface, but it does not exercise behavior. `bun run verify:local:fastapi` runs the FastAPI app with `FakeAgent` patched in to ensure routes match expected shapes without touching the real Agora cloud.
+`pytest` from `server/` covers ticket validation and the configured agent
+pipeline. `bun run verify:local:fastapi` runs the FastAPI app with `FakeAgent`
+patched in to check the proxy route shapes without touching Agora cloud.
 
 After editing `agent.py`, run:
 
@@ -152,7 +175,9 @@ bun run verify:web:api
 | Symptom                                                | Cause                                                                  |
 | ------------------------------------------------------ | ---------------------------------------------------------------------- |
 | Routes return `500 Service not properly configured`    | Missing `AGORA_APP_ID` or `AGORA_APP_CERTIFICATE`; `Agent()` raises `ValueError` at import and `agent` stays `None`. |
-| `400` from `/startAgent` on a valid request            | `Agent.start` raised `ValueError` — usually missing UID fields.         |
+| `401` from start, renewal, or stop                     | Ticket signature invalid or ticket expired.                              |
+| `403` from start, renewal, or stop                     | Ticket claims do not match the supplied channel, UID, or agent.          |
+| `400` from `/startAgent` on a valid request            | Agent rejected its inputs; inspect sanitized server-side logs.           |
 | Agent joins but never speaks                           | TTS BYOK key missing or wrong `voice_id`.                                |
 | Agent state stuck in `IDLE`                            | `enable_rtm` missing from `advanced_features` or RTM not subscribed yet. |
 | Transcript fragments arrive but no metrics             | `parameters.enable_metrics` not set.                                     |

@@ -1,6 +1,6 @@
 # agora-conversational-ai-demo (python) — Repo Card
 
-> Next.js web client + Python FastAPI backend for an Agora Conversational AI voice agent with live transcript.
+> Bolo Ride's English-only Agora voice foundation: Next.js web client + Python FastAPI backend with live transcript and ticket-bound session lifecycle.
 
 ## Identity
 
@@ -11,7 +11,7 @@
 | Language      | Python 3.10+ (FastAPI + uvicorn) backend + Next.js 16 / React 19 web  |
 | Deploy Target | `web/` as Next.js app, `server/` as a reachable FastAPI service      |
 | Owner         | Agora Conversational AI DevEx                                        |
-| Last Reviewed | 2026-09-17                                                           |
+| Last Reviewed | 2026-11-21                                                           |
 | Recipe Role   | `base`                                                               |
 | Recipe Version | `1.0.0`                                                             |
 | Recipe Status | `experimental`                                                       |
@@ -28,5 +28,5 @@ The Audience column helps agents prioritise: **Use** = consuming the quickstart'
 | [04_conventions](L1/04_conventions.md)   | Python async + FastAPI patterns, Biome, JSON contract, hook ownership  | Maintain       |
 | [05_workflows](L1/05_workflows.md)       | Add a route, change managed agent config, verify, deploy each half     | Use            |
 | [06_interfaces](L1/06_interfaces.md)     | FastAPI route contracts, rewrites, env vars, managed agent payload     | Use & Maintain |
-| [07_gotchas](L1/07_gotchas.md)           | `AGENT_BACKEND_URL` dependency, doc drift, missing hook reference      | Maintain       |
-| [08_security](L1/08_security.md)         | Cert handling, CORS wide-open default, token expiry, server-only env   | Maintain       |
+| [07_gotchas](L1/07_gotchas.md)           | Proxy dependency, session-ticket boundary, reconnect limits           | Maintain       |
+| [08_security](L1/08_security.md)         | Cert handling, session tickets, CORS, token expiry, server-only env    | Maintain       |

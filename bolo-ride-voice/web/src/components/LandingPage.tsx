@@ -19,18 +19,17 @@ const ConversationComponent = dynamic(
 	},
 );
 
-function waitForRtmConnected(rtmClient: RTMClient, timeoutMs = 600): Promise<void> {
-	return new Promise((resolve) => {
-		let settled = false;
-		let timer: ReturnType<typeof setTimeout> | null = null;
-
-		const finish = () => {
-			if (settled) return;
-			settled = true;
+function waitForRtmConnected(rtmClient: RTMClient, timeoutMs = 10_000) {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let settle: ((error?: Error) => void) | null = null;
+	const promise = new Promise<void>((resolve, reject) => {
+		const finish = (error?: Error) => {
 			if (timer) clearTimeout(timer);
 			rtmClient.removeEventListener("status", onStatus);
-			resolve();
+			if (error) reject(error);
+			else resolve();
 		};
+		settle = finish;
 
 		const onStatus = (
 			connectionStatus:
@@ -46,14 +45,20 @@ function waitForRtmConnected(rtmClient: RTMClient, timeoutMs = 600): Promise<voi
 							? connectionStatus.state
 							: undefined
 					: undefined;
-			if (nextState === "CONNECTED") {
-				finish();
-			}
+			if (nextState === "CONNECTED") finish();
 		};
 
 		rtmClient.addEventListener("status", onStatus);
-		timer = setTimeout(finish, timeoutMs);
+		timer = setTimeout(
+			() => finish(new Error("Timed out waiting for Agora RTM connection")),
+			timeoutMs,
+		);
 	});
+
+	return {
+		promise,
+		cancel: () => settle?.(),
+	};
 }
 
 const AgoraProvider = dynamic(
@@ -92,7 +97,6 @@ export default function LandingPage() {
 	const [rtmClient, setRtmClient] = useState<RTMClient | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [agentJoinError, setAgentJoinError] = useState(false);
 
 	useEffect(() => {
 		import("agora-rtc-react").catch(() => {});
@@ -102,40 +106,70 @@ export default function LandingPage() {
 	const handleStartConversation = async () => {
 		setIsLoading(true);
 		setError(null);
-		setAgentJoinError(false);
 
 		try {
 			const config = await getConfig();
 			const appId = config.app_id;
 
-			const [agentIdResult, rtm] = await Promise.all([
+			const [agentResult, rtmResult] = await Promise.allSettled([
 				startAgent(
 					config.channel_name,
 					Number(config.agent_uid),
 					Number(config.uid),
-				).catch((err) => {
-					console.error("Failed to start conversation with agent:", err);
-					setAgentJoinError(true);
-					return undefined;
-				}),
+					config.session_ticket,
+				),
 				(async () => {
 					const { default: AgoraRTM } = await import("agora-rtm");
-					const nextRtm: RTMClient = new AgoraRTM.RTM(appId, config.uid);
-					await nextRtm.login({ token: config.token });
-					await waitForRtmConnected(nextRtm);
-					await nextRtm.subscribe(config.channel_name);
-					return nextRtm;
+					const client = new AgoraRTM.RTM(appId, config.uid);
+					const connectionWait = waitForRtmConnected(client);
+					try {
+						await client.login({ token: config.token });
+						await connectionWait.promise;
+						await client.subscribe(config.channel_name);
+						return client;
+					} catch (loginError) {
+						connectionWait.cancel();
+						await client.logout().catch((cleanupError) => {
+							console.error("Failed to log out partially started RTM client:", cleanupError);
+						});
+						throw loginError;
+					}
 				})(),
 			]);
 
-			setRtmClient(rtm);
+			if (agentResult.status === "rejected" || rtmResult.status === "rejected") {
+				if (agentResult.status === "fulfilled") {
+					await stopAgent(
+						agentResult.value.agent_id,
+						config.channel_name,
+						Number(config.uid),
+						agentResult.value.session_ticket,
+					).catch((cleanupError) => {
+						console.error("Failed to stop partially started agent:", cleanupError);
+					});
+				}
+				if (rtmResult.status === "fulfilled") {
+					await rtmResult.value.logout().catch((cleanupError) => {
+						console.error("Failed to log out partially started RTM client:", cleanupError);
+					});
+				}
+				if (agentResult.status === "rejected") {
+					throw agentResult.reason;
+				}
+				if (rtmResult.status === "rejected") {
+					throw rtmResult.reason;
+				}
+			}
+
+			setRtmClient(rtmResult.value);
 			setAgoraData({
 				token: config.token,
+				sessionTicket: agentResult.value.session_ticket,
 				uid: config.uid,
 				channel: config.channel_name,
 				appId: config.app_id,
 				agentUid: config.agent_uid,
-				agentId: agentIdResult,
+				agentId: agentResult.value.agent_id,
 			});
 			setShowConversation(true);
 		} catch (nextError) {
@@ -156,14 +190,18 @@ export default function LandingPage() {
 
 				// Python get_config issues RTM-capable tokens for the configured account,
 				// so renew RTM with the same UID used by the RTM client login.
-				const [rtcConfig, rtmConfig] = await Promise.all([
-					getConfig({ channel, uid }),
-					getConfig({ channel, uid: agoraData.uid }),
-				]);
+				if (Number(uid) !== Number(agoraData.uid)) {
+					throw new Error("RTC UID does not match the initialized session");
+				}
+				const config = await getConfig({
+					channel,
+					uid: agoraData.uid,
+					sessionTicket: agoraData.sessionTicket,
+				});
 
 				return {
-					rtcToken: rtcConfig.token,
-					rtmToken: rtmConfig.token,
+					rtcToken: config.token,
+					rtmToken: config.token,
 				};
 			} catch (error) {
 				console.error("Error renewing token:", error);
@@ -176,13 +214,18 @@ export default function LandingPage() {
 	const handleEndConversation = async () => {
 		if (agoraData?.agentId) {
 			try {
-				await stopAgent(agoraData.agentId);
+				await stopAgent(
+					agoraData.agentId,
+					agoraData.channel,
+					Number(agoraData.uid),
+					agoraData.sessionTicket,
+				);
 			} catch (nextError) {
 				console.error("Failed to stop agent:", nextError);
 			}
 		}
 
-		rtmClient?.logout().catch((err) => console.error("RTM logout error:", err));
+		await rtmClient?.logout().catch((err) => console.error("RTM logout error:", err));
 		setRtmClient(null);
 		setAgoraData(null);
 		setShowConversation(false);
@@ -212,12 +255,6 @@ export default function LandingPage() {
 						/>
 					) : agoraData && rtmClient ? (
 						<>
-							{agentJoinError ? (
-								<div className="max-w-sm rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-									Failed to connect with AI agent. The conversation may not work
-									as expected.
-								</div>
-							) : null}
 							<Suspense fallback={<LoadingSkeleton />}>
 								<ErrorBoundary>
 									<AgoraProvider>

@@ -19,7 +19,7 @@
 
 Edit `server/src/agent.py`:
 
-- **Prompt:** modify the `ADA_PROMPT` constant.
+- **Prompt:** modify the `BOLO_RIDE_PROMPT` constant and preserve its English-only, no-fabricated-business-action guardrails.
 - **Greeting:** change `DEFAULT_GREETING` in `server/src/agent.py`.
 - **VAD:** edit `turn_detection` dict (start/end mode, speech threshold, silence/interrupt durations).
 - **LLM:** change the `OpenAI(...)` constructor (model, history, BYOK key, base URL).
@@ -64,7 +64,10 @@ bun run dev
 
 ## Token Renewal
 
-The browser receives `token-privilege-will-expire` from RTC and calls `getConfig()` twice — once with the RTC `client.uid`, once with the stored `agoraData.uid`. The Python backend re-issues RTM-capable RTC tokens via `generate_convo_ai_token`. If a request passes `uid=0`, the backend generates a non-zero UID because Agora RTC treats `0` as auto-assign but RTM token subjects cannot use `0`.
+The browser receives `token-privilege-will-expire` from RTC and calls
+`getConfig()` once with the server-issued channel, UID, and signed session
+ticket. FastAPI verifies the ticket and re-issues an RTC/RTM token for that
+same identity. Do not accept client-selected UIDs or renew without the ticket.
 
 ## Update Module Guides After Behavior Changes
 

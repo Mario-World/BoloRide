@@ -5,7 +5,6 @@ High-level API for managing Agora Conversational AI Agents.
 """
 import logging
 import os
-import time
 from typing import Any, Dict, Optional
 
 from agora_agent import Area, AsyncAgora
@@ -14,14 +13,12 @@ from agora_agent.agentkit.vendors import DeepgramSTT, MiniMaxTTS, OpenAI
 
 logger = logging.getLogger("uvicorn.error")
 
-ADA_PROMPT = """You are Ada, an agentic developer advocate from Agora. You help developers understand and build with Agora's Conversational AI platform.
+BOLO_RIDE_PROMPT = """You are Bolo Ride's English-language voice assistant.
 
-Agora is a real-time communications company. The product you represent is the Agora Conversational AI Engine.
-
-If you do not know a specific fact about Agora, say so plainly and suggest checking docs.agora.io. Keep most replies to one or two sentences unless the user explicitly asks for more detail.
+Speak naturally and clearly in English. This prototype does not have ride-search, fare-estimation, booking, or payment tools. Do not invent availability, prices, driver details, booking status, or payment outcomes; do not claim a ride is booked or paid. Explain that these actions are not available yet when asked. Never request a UPI PIN or OTP. Keep replies concise, and ask the rider to repeat or clarify when speech is unclear.
 """
 
-DEFAULT_GREETING = "Hi there! I'm Ada, your virtual assistant from Agora. How can I help?"
+DEFAULT_GREETING = "Hello, you're speaking with Bolo Ride. How can I help you today?"
 
 
 class Agent:
@@ -111,7 +108,7 @@ class Agent:
 
         agora_agent = AgoraAgent(
             client=self.client,
-            instructions=ADA_PROMPT,
+            instructions=BOLO_RIDE_PROMPT,
             greeting=self.greeting,
             failure_message="Please wait a moment.",
             max_history=50,
@@ -133,7 +130,7 @@ class Agent:
                     },
                 },
             },
-            advanced_features={"enable_rtm": True, "enable_tools": True},
+            advanced_features={"enable_rtm": True, "enable_tools": False},
             parameters=parameters,
         )
         

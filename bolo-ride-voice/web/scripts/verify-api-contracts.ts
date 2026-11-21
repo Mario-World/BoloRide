@@ -112,6 +112,10 @@ async function verifyApiClientRequests() {
         url.searchParams.get('channel') === 'test-channel',
         'GET /api/get_config should pass the requested channel',
       )
+      assert(
+        url.searchParams.get('session_ticket') === 'signed-session-ticket',
+        'GET /api/get_config should pass the session ticket for renewal',
+      )
 
       return Response.json({
         code: 0,
@@ -121,6 +125,7 @@ async function verifyApiClientRequests() {
           uid: '1234',
           channel_name: 'test-channel',
           agent_uid: '9999',
+          session_ticket: 'started-session-ticket',
         },
         msg: 'success',
       })
@@ -132,6 +137,7 @@ async function verifyApiClientRequests() {
       assert(body.channelName === 'test-channel', 'POST /api/startAgent should include channelName')
       assert(body.rtcUid === 9999, 'POST /api/startAgent should include rtcUid')
       assert(body.userUid === 1234, 'POST /api/startAgent should include userUid')
+      assert(body.sessionTicket === 'signed-session-ticket', 'POST /api/startAgent should include the bootstrap ticket')
 
       return Response.json({
         code: 0,
@@ -139,6 +145,7 @@ async function verifyApiClientRequests() {
           agent_id: 'mock-agent-id',
           channel_name: 'test-channel',
           status: 'started',
+          session_ticket: 'started-session-ticket',
         },
         msg: 'success',
       })
@@ -148,6 +155,9 @@ async function verifyApiClientRequests() {
       assert(init?.method === 'POST', 'POST /api/stopAgent should use POST')
       const body = getRequestBody(init)
       assert(body.agentId === 'mock-agent-id', 'POST /api/stopAgent should include agentId')
+      assert(body.channelName === 'test-channel', 'POST /api/stopAgent should include channelName')
+      assert(body.userUid === 1234, 'POST /api/stopAgent should include userUid')
+      assert(body.sessionTicket === 'started-session-ticket', 'POST /api/stopAgent should include the session ticket')
       return Response.json({ code: 0, msg: 'success' })
     }
 
@@ -155,13 +165,22 @@ async function verifyApiClientRequests() {
   }) as typeof fetch
 
   try {
-    const config = await getConfig({ uid: 1234, channel: 'test-channel' })
+    const config = await getConfig({
+      uid: 1234,
+      channel: 'test-channel',
+      sessionTicket: 'signed-session-ticket',
+    })
     assert(config.token === 'stub-token', 'GET /api/get_config should return response data')
 
-    const agentId = await startAgent('test-channel', 9999, 1234)
-    assert(agentId === 'mock-agent-id', 'POST /api/startAgent should return the agent id')
+    const session = await startAgent('test-channel', 9999, 1234, 'signed-session-ticket')
+    assert(session.agent_id === 'mock-agent-id', 'POST /api/startAgent should return the agent id')
 
-    await stopAgent(agentId)
+    await stopAgent(
+      session.agent_id,
+      'test-channel',
+      1234,
+      session.session_ticket,
+    )
 
     assert(
       JSON.stringify(seenPaths) === JSON.stringify(['/api/get_config', '/api/startAgent', '/api/stopAgent']),

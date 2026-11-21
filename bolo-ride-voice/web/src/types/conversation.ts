@@ -3,11 +3,12 @@ import type { RTMClient } from 'agora-rtm';
 /** Session bootstrap from GET /api/get_config (channel + tokens + agent identity). */
 export interface AgoraTokenData {
   token: string;
+  sessionTicket: string;
   uid: string;
   channel: string;
   agentId?: string;
   appId?: string; // `app_id` returned by backend
-  agentUid?: string; // `NEXT_PUBLIC_AGENT_UID`
+  agentUid?: string;
 }
 
 export interface AgoraRenewalTokens {

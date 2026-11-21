@@ -30,6 +30,31 @@ def test_agent_constructs_with_full_env(fake_env):
 def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
     agent = _fresh_agent_module()
     captured = {}
+    original_agent_builder = agent.AgoraAgent
+
+    def capture_vendor(factory_name, factory):
+        def wrapped(**kwargs):
+            captured[factory_name] = kwargs
+            return factory(**kwargs)
+
+        return wrapped
+
+    monkeypatch.setattr(
+        agent,
+        "DeepgramSTT",
+        capture_vendor("stt", agent.DeepgramSTT),
+    )
+    monkeypatch.setattr(
+        agent,
+        "MiniMaxTTS",
+        capture_vendor("tts", agent.MiniMaxTTS),
+    )
+
+    def capture_agent_builder(**kwargs):
+        captured["agent_config"] = kwargs
+        return original_agent_builder(**kwargs)
+
+    monkeypatch.setattr(agent, "AgoraAgent", capture_agent_builder)
 
     class FakeSession:
         async def start(self):
@@ -44,7 +69,7 @@ def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
         captured["remote_uids"] = kwargs.get("remote_uids")
         return FakeSession()
 
-    from agora_agent.agentkit import Agent as AgoraAgent
+    AgoraAgent = original_agent_builder
 
     monkeypatch.setattr(AgoraAgent, "create_async_session", fake_create_async_session)
 
@@ -63,6 +88,20 @@ def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
     assert "vendor" not in captured["llm"]  # managed OpenAI has no custom vendor key
     assert captured["channel"] == "ch"
     assert captured["remote_uids"] == ["222"]
+    assert captured["stt"] == {"model": "nova-3", "language": "en"}
+    assert captured["tts"] == {
+        "model": "speech_2_6_turbo",
+        "voice_id": "English_captivating_female1",
+    }
+    assert "Bolo Ride's English-language voice assistant" in captured["agent_config"]["instructions"]
+    assert captured["agent_config"]["advanced_features"]["enable_rtm"] is True
+    assert captured["agent_config"]["advanced_features"]["enable_tools"] is False
+    assert (
+        captured["agent_config"]["turn_detection"]["config"]["start_of_speech"]["vad_config"][
+            "interrupt_duration_ms"
+        ]
+        == 160
+    )
 
 
 def test_start_validates_arguments(fake_env, monkeypatch):

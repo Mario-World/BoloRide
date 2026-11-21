@@ -15,17 +15,17 @@ User clicks "Start"
 LandingPage.tsx
    │
    ├─▶ getConfig()                       (GET /api/get_config → GET /get_config)
-   │     ◀── data: { app_id, token, uid, channel_name, agent_uid }
+   │     ◀── data: { app_id, token, uid, channel_name, agent_uid, session_ticket }
    │
-   ├─▶ startAgent(channel_name, agent_uid, uid)    (POST /api/startAgent)
-   │     ◀── data: { agent_id, channel_name, status }
+   ├─▶ startAgent(channel_name, agent_uid, uid, session_ticket) (POST /api/startAgent)
+   │     ◀── data: { agent_id, channel_name, status, session_ticket }
    │
    ├─▶ new AgoraRTM.RTM(app_id, uid)
    │     .login({ token })
    │     waitForRtmConnected()
    │     .subscribe(channel_name)
    │
-   └─▶ setAgoraData({ app_id, token, uid, channel, agentId })
+   └─▶ setAgoraData({ app_id, token, uid, channel, agentId, sessionTicket })
          setRtmClient(rtmClient)
          render <ConversationComponent />
 
@@ -46,15 +46,17 @@ ConversationComponent.tsx
                   MESSAGE_ERROR, MESSAGE_SAL_STATUS, AGENT_ERROR
 ```
 
-## Why `getConfig` and `startAgent` Run in Parallel
+## Why Agent Start and RTM Login Run in Parallel
 
-`startAgent` only needs `channel_name`, `agent_uid`, and `user_uid`. It does not need RTM to be live. Running it alongside RTM login shaves ~200ms off perceived start latency. If `startAgent` fails (e.g. backend transient), `LandingPage` logs but continues — the user can still see RTC join and may retry.
+After `getConfig`, `LandingPage` starts the agent and logs into/subscribes to
+RTM concurrently. If either fails, it stops a successfully started agent and
+logs out a partially initialized RTM client before showing the error.
 
 ## RTM Bootstrap Details
 
 `LandingPage` dynamically imports `agora-rtm` to avoid touching `window` during SSR. After `RTM` is constructed:
 
-1. `await rtm.login({ token })` — uses the **same token string** as RTC (one token, both privileges).
+1. `await rtm.login({ token })` — uses the same token string as RTC (one token, both privileges) and the server-issued UID.
 2. Wait for the `CONNECTED` event (helper `waitForRtmConnected` resolves on a status change).
 3. `await rtm.subscribe(channel_name)` — the channel name returned by `getConfig`.
 4. Pass the client into `ConversationComponent` as `rtmClient`.
@@ -63,33 +65,35 @@ If RTM `login` fails, the whole call fails — there is no fallback path; transc
 
 ## Token Renewal Sequence
 
-RTC fires `token-privilege-will-expire` ~30 seconds before expiry. `ConversationComponent` attaches a handler that calls `LandingPage.handleTokenWillExpire`:
+RTC fires `token-privilege-will-expire` before expiry.
+`ConversationComponent` attaches a handler that calls
+`LandingPage.handleTokenWillExpire`:
 
 ```ts
 async function handleTokenWillExpire(joinedUid: UID) {
-  if (!joinedUid) return; // skip if RTC never reported a uid
-  const [rtcConfig, rtmConfig] = await Promise.all([
-    getConfig({ channel, uid: joinedUid }),
-    getConfig({ channel, uid: agoraData.uid }),
-  ]);
-  await client.renewToken(rtcConfig.token);
-  await rtmClient.renewToken(rtmConfig.token);
+  if (Number(joinedUid) !== Number(agoraData.uid)) {
+    throw new Error("RTC UID does not match the initialized session");
+  }
+  const config = await getConfig({
+    channel: agoraData.channel,
+    uid: agoraData.uid,
+    sessionTicket: agoraData.sessionTicket,
+  });
+  await client.renewToken(config.token);
+  await rtmClient.renewToken(config.token);
 }
 ```
 
-Why two `getConfig` calls?
-
-- The RTC `client.uid` may differ from the original `agoraData.uid` if the SDK assigned one.
-- RTM is logged in with `agoraData.uid` and rejects tokens issued for a different UID.
-
-`ConversationComponent` only invokes the handler when `joinedUID` (RTC's reported UID) is truthy. If RTC has not yet reported, renewal is silently skipped — RTC will reconnect on its own when the channel is re-joined.
+The server validates the signed ticket against the channel and exact UID, then
+issues a new RTC/RTM token for the same identity. A mismatched RTC UID is
+surfaced as a renewal error rather than issuing a token for another identity.
 
 ## Ending the Call
 
 `stopConversation()` does:
 
-1. Pause publishing (`track.setEnabled(false)`).
-2. Call `stopAgent(agoraData.agentId)` if there is one. The handler tolerates `400`/`404` because the user may double-tap end.
+1. `ConversationComponent.handleEndConversation` unpublishes/closes the active microphone track.
+2. `LandingPage` sends `stopAgent(agentId, channel, uid, sessionTicket)`.
 3. Call `rtmClient.logout()`.
 4. Reset state (`setAgoraData(null)`, `setRtmClient(null)`).
 
@@ -108,10 +112,13 @@ The order matters: stopping the agent before RTM logout means the user keeps rec
 | ---------------------------------------------------- | ------------------------------------------------------------------ |
 | `/api/get_config` 404                                | `AGENT_BACKEND_URL` not set → no rewrites registered.              |
 | `422` from `/startAgent`                             | pydantic rejected the body — usually wrong field name (`channel_name` instead of `channelName`). |
+| `401` from start, renewal, or stop                   | Session ticket is invalid or expired.                                    |
+| `403` from start, renewal, or stop                   | Ticket claims do not match the supplied channel, UID, or agent.           |
 | Transcript empty, agent state stuck                  | RTM not subscribed or `subscribeMessage(channel)` never ran.       |
-| Agent disconnects exactly at 1 hour                  | Renewal skipped (likely `joinedUID` was 0); check RTC join logs.   |
+| Agent disconnects at token expiry                     | Renewal failed or was not applied; inspect browser logs and ticket expiry. |
 | Microphone busy on second mount in dev               | RTC client was recreated (probably `useMemo` regression).          |
-| RTM rejects renewal                                  | Renewal token was built for the wrong UID — verify two-fetch path. |
+| RTM rejects renewal                                  | Confirm RTC, RTM, and ticket use the server-issued UID and same renewal token. |
+| RTM stops receiving events after network loss        | RTM resubscription after later reconnect is not implemented.       |
 
 ## See Also
 

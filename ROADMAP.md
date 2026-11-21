@@ -1,8 +1,21 @@
 # Bolo Ride Development Roadmap
 
-This is a milestone plan, not an implementation. The current workspace contains
-two separate Agora voice quickstarts and no ride-booking business backend.
-Large code migrations and business-feature implementation require approval.
+This is a milestone plan, not an implementation. The workspace contains a root
+Android/FastAPI prototype and a nested Agora Python/Next.js quickstart. The
+nested app now has an English-only Bolo Ride voice foundation; no
+ride-booking business backend exists. Large code migrations and business-feature
+implementation require approval.
+
+## Current status
+
+- The nested Python service mints server-side Agora RTC/RTM tokens and signed,
+  expiring session tickets. Its managed pipeline is Deepgram `nova-3` (English),
+  OpenAI `gpt-4o-mini`, and MiniMax `speech_2_6_turbo`.
+- The Next.js client handles the RTC/RTM lifecycle, transcripts, runtime
+  metrics/errors, interruption display, token renewal, and teardown.
+- The voice path has not been tested against a live Agora project. It does not
+  yet search rides, estimate fares, create bookings, or process payments.
+- The separate root Android app remains unchanged by this voice-foundation work.
 
 ## Milestones
 
@@ -75,8 +88,8 @@ the model produces malformed or repeated arguments.
 
 ### 6. Deliver multilingual web voice UX
 
-- Adapt the existing Next.js voice prototype after the repository baseline is
-  approved.
+- Extend the implemented English voice foundation after the repository
+  baseline is approved.
 - Validate ASR, LLM, and TTS support for Telugu, Hindi, Kannada, and English;
   test language selection, code-switching, clarifications, and fallbacks.
 - Add fare read-back and explicit confirmation UI before calling the booking

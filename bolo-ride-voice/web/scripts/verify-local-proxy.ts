@@ -69,14 +69,23 @@ async function withStubBackend<T>(run: (baseUrl: string) => Promise<T>) {
           uid: '4321',
           channel_name: 'proxy-channel',
           agent_uid: '9999',
+          session_ticket: 'bootstrap-ticket',
         },
         msg: 'success',
       })
     }
 
     if (request.method === 'POST' && url.pathname === '/startAgent') {
-      const parsedBody = (await request.json()) as { rtcUid?: number; userUid?: number }
-      if (parsedBody.rtcUid !== 9999 || parsedBody.userUid !== 4321) {
+      const parsedBody = (await request.json()) as {
+        rtcUid?: number
+        userUid?: number
+        sessionTicket?: string
+      }
+      if (
+        parsedBody.rtcUid !== 9999 ||
+        parsedBody.userUid !== 4321 ||
+        parsedBody.sessionTicket !== 'bootstrap-ticket'
+      ) {
         return Response.json({ detail: 'unexpected proxied payload' }, { status: 400 })
       }
 
@@ -86,6 +95,7 @@ async function withStubBackend<T>(run: (baseUrl: string) => Promise<T>) {
           agent_id: 'agent-proxied',
           channel_name: 'proxy-channel',
           status: 'started',
+          session_ticket: 'started-ticket',
         },
         msg: 'success',
       })
@@ -125,7 +135,7 @@ async function main() {
   await withStubBackend(async (backendUrl) => {
     process.env.AGENT_BACKEND_URL = backendUrl
 
-    const configResponse = await requestViaRewrite('/api/get_config?uid=4321&channel=proxy-channel')
+    const configResponse = await requestViaRewrite('/api/get_config')
     const configBody = await getJson(configResponse)
     assert(configResponse.status === 200, 'GET /api/get_config should proxy successfully')
     assert(configBody.code === 0, 'GET /api/get_config should preserve proxied success payload')
@@ -141,6 +151,7 @@ async function main() {
         channelName: 'proxy-channel',
         rtcUid: 9999,
         userUid: 4321,
+        sessionTicket: 'bootstrap-ticket',
       }),
     })
     const startBody = await getJson(startResponse)
@@ -153,7 +164,12 @@ async function main() {
     const stopResponse = await requestViaRewrite('/api/stopAgent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId: 'agent-proxied' }),
+      body: JSON.stringify({
+        agentId: 'agent-proxied',
+        channelName: 'proxy-channel',
+        userUid: 4321,
+        sessionTicket: 'started-ticket',
+      }),
     })
     const stopBody = await getJson(stopResponse)
     assert(stopResponse.status === 200, 'POST /api/stopAgent should proxy successfully')

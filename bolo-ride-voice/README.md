@@ -6,6 +6,13 @@
 
 Build a production-style voice agent with a Next.js web client and Python FastAPI backend. This quickstart includes live transcript, agent visualizer ([Agent UIKit](https://agoraio-conversational-ai.github.io/agent-uikit/)), and managed STT/LLM/TTS defaults.
 
+## Bolo Ride Foundation
+
+This Agora Python quickstart is the current web voice-agent foundation for Bolo
+Ride. It provides an English conversation path only; it does not search for
+rides, quote fares, create bookings, or process payments. The agent has no
+business tools enabled and must not claim those actions have occurred.
+
 ## Prerequisites
 
 - [Python 3.10+](https://www.python.org/)
@@ -93,9 +100,14 @@ Primary backend env file: [`server/.env.example`](server/.env.example).
 | `AGORA_APP_ID` | ✅ | — | Agora Console -> Project -> App ID |
 | `AGORA_APP_CERTIFICATE` | ✅ | — | Agora Console -> Project -> App Certificate (server only) |
 | `PORT` |  | `8000` | FastAPI server port |
+| `AGENT_ALLOWED_ORIGINS` |  | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated FastAPI CORS origins |
 | `AGENT_BACKEND_URL` (web deploy) | ✅ | — | Required in deployed `web` app when proxying to external FastAPI |
 
-> **Default vs BYOK** — this quickstart defaults to Agora-managed STT + LLM + TTS in the backend. Enable BYOK by uncommenting provider blocks in `server/src/agent.py` and adding matching keys.
+The configured pipeline is Agora-managed Deepgram `nova-3` ASR
+(`language="en"`), OpenAI `gpt-4o-mini` LLM, and MiniMax
+`speech_2_6_turbo` TTS with `English_captivating_female1`. No provider API keys
+are required for this managed chain. The ASR language and TTS voice are English;
+support for Telugu, Hindi, Kannada, or code-mixed speech has not been verified.
 
 ## Commands
 
@@ -137,11 +149,43 @@ The browser talks to Next.js `/api/*` routes. In local mode, Next rewrites those
 
 ## How It Works
 
-1. Browser requests connection config from `/api/get_config`.
-2. Backend generates combined RTC+RTM config and returns channel + token.
-3. Browser joins RTC/RTM and starts streaming audio.
-4. Browser calls `/api/startAgent`; backend starts the cloud agent session.
-5. Browser receives transcript and state updates over RTM, and `/api/stopAgent` ends the session.
+1. Browser requests initial config from `/api/get_config`.
+2. FastAPI generates a random channel and numeric UIDs, mints an RTC/RTM token,
+   and returns a signed, expiring session ticket.
+3. Browser starts the agent with that ticket, logs into RTM, subscribes to the
+   channel, joins RTC, and publishes microphone audio.
+4. Agora carries audio to the managed ASR → LLM → TTS pipeline and returns
+   agent audio over RTC; the browser plays the remote track.
+5. Transcript, state, errors, and metrics arrive over RTM. Before token
+   expiry, the browser renews only the UID/channel bound to its session ticket.
+6. On end, the browser stops the ticket-bound agent, releases microphone/RTC
+   resources, and logs out of RTM.
+
+## Voice Architecture and Runtime
+
+- **Audio flow:** browser microphone track → RTC channel → Agora agent →
+  managed ASR → LLM → TTS → RTC remote audio playback.
+- **Interruption:** the agent VAD uses `interrupt_duration_ms=160` and
+  `prefix_padding_ms=300`; interrupted transcript turns are marked in the UI.
+- **Reconnects:** the RTC client exposes `CONNECTING`, `RECONNECTING`, and
+  disconnect states; the UI reflects them. Token renewal refreshes both RTC
+  and RTM with the same concrete session UID. RTM re-subscription after a
+  later network reconnect has not been verified in a live call.
+- **Runtime events:** the browser listens for transcript updates, agent state,
+  ASR/LLM/TTS metrics, agent/module errors, and RTM signaling errors. These
+  events and the transcript are held in client memory; no webhook or durable
+  transcript storage is configured.
+- **Latency:** `AGENT_METRICS` provides per-module metric type, name, value,
+  and timestamp. The UI displays the latest ASR/LLM/TTS values in milliseconds.
+  No live latency measurement has been collected as part of this implementation.
+- **Token boundary:** the App Certificate stays in the FastAPI environment.
+  The signed session ticket is an expiring capability derived from the
+  server-side certificate; it is not an Agora certificate or provider key.
+  CORS is origin-restricted, but the service has no product-user authentication
+  or rate limiting and is not production-ready.
+
+For the full sequence, token claims, event mapping, latency notes, and known
+limitations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Repo Map
 

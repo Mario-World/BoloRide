@@ -1,13 +1,13 @@
 # Bolo Ride Architecture
 
-**Status:** Workspace assessment and proposed target, 21 November 2026. This
-document does not authorize or perform a code migration.
+**Status:** Current-state assessment and proposed target, 21 November 2026.
+The Agora Python voice foundation is implemented under `bolo-ride-voice/`;
+broader repository consolidation has not been performed.
 
 ## Current Architecture
 
-The workspace has two separate voice-agent quickstarts. The root
-`bolo-ride/` is the Git repository; the nested `bolo-ride-voice/` subtree is
-currently untracked.
+The workspace has two separate voice applications: the root Android quickstart
+and an Agora Python + Next.js voice-agent foundation under `bolo-ride-voice/`.
 
 ```mermaid
 flowchart LR
@@ -16,7 +16,7 @@ flowchart LR
     AndroidAPI --> Agora["Agora RTC / RTM / Conversational AI"]
   end
 
-  subgraph Nested["Untracked subtree: Python quickstart"]
+  subgraph Nested["Agora Python + Next.js voice foundation"]
     Web["Next.js / React"] -->|"/api/* rewrites"| WebAPI["FastAPI: server/src"]
     Web --> Agora
     WebAPI --> Agora
@@ -29,9 +29,9 @@ flowchart LR
 | --- | --- | --- |
 | Root Android client | Compose screen, microphone/audio controls, RTC/RTM session management, transcripts, interruption, and token renewal under `app/`. | A conversation demo, not a ride-booking UI. |
 | Root FastAPI service | `server/app/` issues tokens and manages Agora sessions; `server/app/session_store.py` keeps session state in memory. | No business API or persistent ride state. |
-| Nested web client | `bolo-ride-voice/web/` is a Next.js 16/React 19 voice client; it uses Agora RTC/RTM and rewrites `/api/*` to FastAPI. | It is an untracked quickstart derivative, not integrated with the root app. |
-| Nested FastAPI service | `bolo-ride-voice/server/src/` owns Agora token generation and agent start/stop; active sessions are held in memory. | No ride, fare, or payment domain. |
-| Agora pipeline | Both services configure managed ASR → LLM → TTS. The inspected defaults use English (`language="en"`) and an English MiniMax voice. | Telugu, Hindi, and Kannada are not configured or tested. |
+| Nested web client | `bolo-ride-voice/web/` is a Next.js 16/React 19 voice client; it uses Agora RTC/RTM and rewrites `/api/*` to FastAPI. | A separate voice app, not integrated with the Android client. |
+| Nested FastAPI service | `bolo-ride-voice/server/src/` owns Agora token generation and agent start/stop; signed session tickets bind renewal and lifecycle requests to a generated session. | Session bookkeeping remains process-local; no ride, fare, or payment domain. |
+| Agora pipeline | The Python service uses managed Deepgram `nova-3` (`language="en"`), OpenAI `gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`. | English-only configuration; Telugu, Hindi, Kannada, and code-mixed speech are not claimed or tested. |
 | Persistence | No PostgreSQL, ORM, migration, or database configuration was found in either tree. | No durable users, fare quotes, bookings, payments, or operation records. |
 
 The two services expose different session APIs and should not be treated as
@@ -42,15 +42,19 @@ No route contract currently represents a ride, fare, booking, or payment.
 The nested `bolo-ride-voice/server/.env` exists locally and is ignored by that
 subtree's `server/.gitignore`. Its contents were not read. Keep it and all
 Agora/provider credentials out of commits and browser-facing configuration.
+The web client receives an RTC/RTM token and a signed session ticket; neither
+contains or replaces the Agora App Certificate.
 
 ### Current security and operational boundaries
 
 - Both implementations keep the Agora App Certificate on a Python server.
 - Neither implementation has product-user authentication for business actions;
   neither should be exposed as a production booking/payment API as-is.
-- The nested quickstart allows wildcard CORS and has no route-level user
-  authorization. The root service has rate limiting but still has no product
-  identity or ride-level authorization.
+- The nested service restricts CORS to configured origins and binds token
+  renewal, agent start, and agent stop to a signed session ticket. It still has
+  no product-user authentication or rate limiting; CORS is not an auth boundary.
+- The root service has rate limiting but still has no product identity or
+  ride-level authorization.
 - Agent/session state is process-local and is lost on restart; it cannot be the
   source of truth for bookings or payment outcomes.
 
@@ -149,10 +153,10 @@ docs/
   ROADMAP.md
 ```
 
-Before adopting this layout, approve which existing tree is canonical and how
-to preserve the root Android implementation and untracked web/Python
-quickstart. Do not copy or stage the nested project wholesale without reviewing
-its local environment files and Git status.
+Before adopting this layout, decide how to preserve the root Android
+implementation and the separate web/Python voice foundation. Do not move or
+consolidate either tree without reviewing its local environment files and Git
+status.
 
 ## Missing Components
 

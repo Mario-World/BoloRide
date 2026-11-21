@@ -1,17 +1,11 @@
 "use client";
 
+import { EMessageStatus, type IMessageListItem } from "agora-agent-uikit";
 import { useEffect, useMemo, useRef } from "react";
 
-type TranscriptMessage = {
-	turn_id?: string | number;
-	uid: number;
-	text?: string;
-	createdAt?: number;
-};
-
 type QuickstartTranscriptPanelProps = {
-	messageList: TranscriptMessage[];
-	currentInProgressMessage: TranscriptMessage | null;
+	messageList: IMessageListItem[];
+	currentInProgressMessage: IMessageListItem | null;
 	agentUID: string;
 };
 
@@ -69,6 +63,8 @@ export function QuickstartTranscriptPanel({
 						const label = isAgent ? "Agent" : "You";
 						const text = message.text?.trim();
 						const time = formatMessageTime(message.createdAt);
+						const wasInterrupted =
+							message.status === EMessageStatus.INTERRUPTED;
 
 						return (
 							<article
@@ -78,6 +74,9 @@ export function QuickstartTranscriptPanel({
 								<div className="mb-1 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
 									<span>{label}</span>
 									{time ? <span className="font-normal">{time}</span> : null}
+									{wasInterrupted ? (
+										<span className="font-normal text-amber-600">Interrupted</span>
+									) : null}
 								</div>
 								<div
 									className={`max-w-full whitespace-pre-wrap rounded-xl border px-3 py-2 text-sm leading-6 ${

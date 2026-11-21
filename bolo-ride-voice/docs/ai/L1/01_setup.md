@@ -38,6 +38,7 @@ bun run setup
 AGORA_APP_ID=your_agora_app_id
 AGORA_APP_CERTIFICATE=your_agora_app_certificate
 PORT=8000
+AGENT_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
 | Variable                 | Process              | Required | Notes                                                                 |
@@ -45,8 +46,12 @@ PORT=8000
 | `AGORA_APP_ID`           | Python (server)      | Yes      | Loaded by `Agent.__init__` via `os.environ`.                          |
 | `AGORA_APP_CERTIFICATE`  | Python (server)      | Yes      | Server-only.                                                          |
 | `PORT`                   | Python (server)      | No       | Default `8000` (`server.py`).                                          |
+| `AGENT_ALLOWED_ORIGINS`  | Python (server)      | No       | Comma-separated CORS origins; defaults to local web dev origins. |
 | `AGENT_BACKEND_URL`      | Next build (web)     | Yes for rewrites | Empty/missing → no `/api/*` rewrites registered. Required by `web/scripts/doctor.ts`. |
-| `NEXT_PUBLIC_AGENT_UID`  | Browser (web)        | No       | Optional UID override read in `ConversationComponent.tsx`.            |
+
+`server.py` loads `server/.env` without overriding values already present in
+the process environment. The backend generates the session channel and UIDs;
+the browser must not choose them for token issuance.
 
 ## Python Dependencies
 

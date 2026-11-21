@@ -55,6 +55,7 @@ cp .env.example .env
 `.env.example` is the reference template. If you are not using the Agora CLI, edit `.env` and fill in your Agora credentials:
 - `AGORA_APP_ID` - Your Agora App ID (Required)
 - `AGORA_APP_CERTIFICATE` - Your Agora App Certificate (Required)
+- `AGENT_ALLOWED_ORIGINS` - Comma-separated web origins allowed by FastAPI CORS
 - Agora managed provider access should be enabled for this project
 
 If you still need to authenticate with the CLI:
@@ -78,7 +79,13 @@ agora project use my-first-voice-agent
 agora quickstart env write ..
 ```
 
-**Note**: The service uses Token007 authentication generated from `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE`. Third-party vendor keys are not required in this default managed setup. The current default chain matches the Next.js quickstart: `DeepgramSTT` (`nova-3`) + `OpenAI` (`gpt-4o-mini`) + `MiniMaxTTS` (`speech_2_6_turbo` / `English_captivating_female1`). The FastAPI sample now uses `AsyncAgora` so the request path matches the local Agora guidance for async frameworks.
+**Note**: The service generates RTC/RTM tokens from `AGORA_APP_ID` and
+`AGORA_APP_CERTIFICATE`, and signs short-lived session tickets using a
+domain-separated key derived from the certificate. Both secrets stay server
+side. Third-party vendor keys are not required for the managed chain:
+`DeepgramSTT` (`nova-3`, English) + `OpenAI` (`gpt-4o-mini`) + `MiniMaxTTS`
+(`speech_2_6_turbo` / `English_captivating_female1`). The Bolo Ride prompt has
+no business tools and makes no ride, fare, or payment claims.
 
 ### 2. Install Dependencies
 
@@ -112,27 +119,29 @@ The service will start on port 8000 (or the port specified in `.env`).
 ### 4. Test API
 
 ```bash
-# Test config generation
+# Request an initial session configuration (contains a short-lived session ticket)
 curl http://localhost:8000/get_config
 
-# Test agent start
-curl -X POST http://localhost:8000/startAgent \
-  -H "Content-Type: application/json" \
-  -d '{"channelName": "test_channel", "rtcUid": 123456, "userUid": 789012}'
-
-# Test agent stop (use agent_id from start response)
-curl -X POST http://localhost:8000/stopAgent \
-  -H "Content-Type: application/json" \
-  -d '{"agentId": "your_agent_id"}'
+# Start and stop requests must include the returned session ticket and session identity.
+# Use the browser flow or the FastAPI /docs page to copy values from each response.
+#
+# POST /startAgent: channelName, rtcUid, userUid, sessionTicket
+# POST /stopAgent: agentId, channelName, userUid, sessionTicket
+#
+# Do not log, commit, or share session tickets.
 ```
 
 ## API Endpoints
 
-- `GET /get_config` - Generate connection configuration
-- `POST /startAgent` - Start an agent
-- `POST /stopAgent` - Stop an agent
+- `GET /get_config` - Create a session (no query) or renew a token using a
+  ticket-bound `channel`, `uid`, and `session_ticket`.
+- `POST /startAgent` - Start the agent for the initialized session. Returns a
+  ticket bound to the returned agent ID.
+- `POST /stopAgent` - Stop only the agent ID bound to its session ticket.
 
-`/get_config` now issues one-hour RTC plus RTM tokens. The web client renews both before expiry, matching the reference Next.js session model.
+The browser renews the same concrete RTC/RTM UID before the one-hour token
+expires. FastAPI restricts CORS through `AGENT_ALLOWED_ORIGINS`; this does not
+replace product authentication or rate limiting.
 
 The repo-level `bun run verify:local:fastapi` check exercises this FastAPI app through the Next proxy path, but it swaps in a fake agent implementation so route wiring can be verified without depending on a live agent start.
 

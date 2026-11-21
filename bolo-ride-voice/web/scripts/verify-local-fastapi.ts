@@ -80,9 +80,12 @@ async function waitForHealthyBackend(baseUrl: string, timeoutMs: number) {
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${baseUrl}/get_config?uid=4321&channel=python-smoke`)
+      const response = await fetch(`${baseUrl}/get_config`)
       if (response.ok) {
-        return
+        const body = await getJson(response)
+        const data = body.data as Record<string, unknown> | undefined
+        assert(data, 'GET /get_config should return initial session data')
+        return data
       }
       lastError = `backend returned ${response.status}`
     } catch (error) {
@@ -135,21 +138,26 @@ async function main() {
   })
 
   try {
-    await waitForHealthyBackend(backendUrl, 10_000)
+    const initialConfig = await waitForHealthyBackend(backendUrl, 10_000)
 
     process.env.AGENT_BACKEND_URL = backendUrl
 
-    const response = await requestViaRewrite('/api/get_config?uid=4321&channel=python-smoke')
+    const renewalQuery = new URLSearchParams({
+      uid: String(initialConfig.uid),
+      channel: String(initialConfig.channel_name),
+      session_ticket: String(initialConfig.session_ticket),
+    })
+    const response = await requestViaRewrite(`/api/get_config?${renewalQuery}`)
     const body = await getJson(response)
 
     assert(response.status === 200, 'GET /api/get_config should proxy to the FastAPI app')
     assert(body.code === 0, 'GET /api/get_config should preserve the FastAPI success payload')
 
     const data = body.data as Record<string, unknown> | undefined
-    assert(data?.uid === '4321', 'GET /api/get_config should preserve the requested uid through FastAPI')
+    assert(data?.uid === initialConfig.uid, 'GET /api/get_config should preserve the session UID through FastAPI')
     assert(
-      data?.channel_name === 'python-smoke',
-      'GET /api/get_config should preserve the requested channel through FastAPI',
+      data?.channel_name === initialConfig.channel_name,
+      'GET /api/get_config should preserve the signed session channel through FastAPI',
     )
     assert(
       typeof data?.token === 'string' && data.token.length > 0,
@@ -159,37 +167,50 @@ async function main() {
       typeof data?.agent_uid === 'string' && data.agent_uid.length > 0,
       'GET /api/get_config should return an agent uid from FastAPI',
     )
-
-    const zeroUidResponse = await requestViaRewrite('/api/get_config?uid=0&channel=python-smoke')
-    const zeroUidBody = await getJson(zeroUidResponse)
-    assert(zeroUidResponse.status === 200, 'GET /api/get_config?uid=0 should proxy to the FastAPI app')
-    const zeroUidData = zeroUidBody.data as Record<string, unknown> | undefined
     assert(
-      typeof zeroUidData?.uid === 'string' && zeroUidData.uid !== '0',
-      'GET /api/get_config?uid=0 should generate an RTM-safe uid',
+      data?.session_ticket === initialConfig.session_ticket,
+      'GET /api/get_config should preserve the signed session ticket',
     )
 
+    const arbitrarySessionResponse = await requestViaRewrite(
+      '/api/get_config?uid=4321&channel=python-smoke',
+    )
+    assert(
+      arbitrarySessionResponse.status === 400,
+      'GET /api/get_config should reject caller-selected sessions without a signed ticket',
+    )
+
+    const channelName = String(initialConfig.channel_name)
+    const userUid = Number(initialConfig.uid)
+    const agentUid = Number(initialConfig.agent_uid)
     const startResponse = await requestViaRewrite('/api/startAgent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        channelName: 'python-smoke',
-        rtcUid: 9999,
-        userUid: 4321,
+        channelName,
+        rtcUid: agentUid,
+        userUid,
+        sessionTicket: initialConfig.session_ticket,
       }),
     })
     const startBody = await getJson(startResponse)
     assert(startResponse.status === 200, 'POST /api/startAgent should proxy to the FastAPI app')
     assert(startBody.code === 0, 'POST /api/startAgent should preserve the FastAPI success payload')
     assert(
-      (startBody.data as Record<string, unknown> | undefined)?.agent_id === 'fake-agent-9999',
+      (startBody.data as Record<string, unknown> | undefined)?.agent_id === `fake-agent-${agentUid}`,
       'POST /api/startAgent should return the agent id from FastAPI',
     )
 
+    const startedData = startBody.data as Record<string, unknown>
     const stopResponse = await requestViaRewrite('/api/stopAgent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId: 'fake-agent-9999' }),
+      body: JSON.stringify({
+        agentId: startedData.agent_id,
+        channelName,
+        userUid,
+        sessionTicket: startedData.session_ticket,
+      }),
     })
     const stopBody = await getJson(stopResponse)
     assert(stopResponse.status === 200, 'POST /api/stopAgent should proxy to the FastAPI app')

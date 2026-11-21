@@ -31,6 +31,7 @@ import {
 	MessageSalStatus,
 	type TranscriptHelperItem,
 	TranscriptHelperMode,
+	TurnStatus,
 	type UserTranscription,
 } from "agora-agent-client-toolkit";
 import { AgentVisualizer } from "agora-agent-uikit";
@@ -95,9 +96,7 @@ export default function ConversationComponent({
 
 	const [connectionState, setConnectionState] = useState<string>("CONNECTING");
 	const agentUID =
-		agoraData.agentUid ??
-		process.env.NEXT_PUBLIC_AGENT_UID ??
-		String(DEFAULT_AGENT_UID);
+		agoraData.agentUid ?? String(DEFAULT_AGENT_UID);
 	const [joinedUID, setJoinedUID] = useState<UID>(0);
 
 	const [rawTranscript, setRawTranscript] = useState<

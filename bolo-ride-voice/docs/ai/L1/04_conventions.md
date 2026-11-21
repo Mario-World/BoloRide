@@ -22,24 +22,24 @@ There is **no ESLint config file** in `web/` — Biome is the only TS/JS linter.
 - The FastAPI `agent` instance is created once at module scope (`agent = Agent()`). `Agent.__init__` reads env via `os.environ`. Recreating `Agent` per request would be wasteful and is intentionally avoided.
 - `Agent` is **not stateless**: it holds `self._sessions: Dict[str, Any]` keyed by `agent_id` for the lifetime of the worker. Per-request data still lives in pydantic models and locals; only cross-call session bookkeeping belongs on `self`.
 - If `Agent()` fails during module load (missing env after imports succeed), the module exports `agent = None` and route handlers return `500`. `verify:backend` only compiles source; use `verify:local:fastapi` or `bun run dev` to exercise imports and startup behavior.
-- Errors are raised, not returned as tuples. `_to_http_error` in `server.py` maps `ValueError` → `400`, `RuntimeError` → `500`, anything else → `500`.
-- Logging: `logging.getLogger("uvicorn.error")`. There is no custom logger.
+- Errors are raised, not returned as tuples. Request/ticket validation returns explicit `400`/`401`/`403`; `_to_http_error` maps `ValueError` → `400` and provider/runtime errors to a sanitized `500`.
+- Route failures are logged through `logging.getLogger("uvicorn.error")` with route, safe session context, and exception type; provider exceptions are not returned verbatim.
 - Type hints are used for pydantic models (`StartAgentRequest`, `StopAgentRequest`) and `Agent` method signatures.
 
 ## Pydantic Models
 
 | Model                    | Lives in           | Fields                                        |
 | ------------------------ | ------------------ | --------------------------------------------- |
-| `StartAgentRequest`      | `server/src/server.py` | `channelName`, `rtcUid`, `userUid`, optional `parameters` |
-| `StopAgentRequest`       | `server/src/server.py` | `agentId`                                    |
+| `StartAgentRequest`      | `server/src/server.py` | `channelName`, `rtcUid`, `userUid`, `sessionTicket`, optional `parameters` |
+| `StopAgentRequest`       | `server/src/server.py` | `agentId`, `channelName`, `userUid`, `sessionTicket` |
 
 `StartAgentRequest.parameters` is optional — `server.py` only reads `output_audio_codec` from it.
 
 ## JSON Contract Style
 
-- Browser sends camelCase (`channelName`, `rtcUid`, `userUid`, `agentId`).
+- Browser sends camelCase (`channelName`, `rtcUid`, `userUid`, `agentId`, `sessionTicket`).
 - Server responses use the envelope `{ "code": 0, "msg": "success", "data": {...} }`.
-- `data` payloads use snake_case (`app_id`, `channel_name`, `agent_uid`).
+- `data` payloads use snake_case (`app_id`, `channel_name`, `agent_uid`, `session_ticket`).
 
 ## TypeScript / React Patterns
 
@@ -59,9 +59,9 @@ There is **no ESLint config file** in `web/` — Biome is the only TS/JS linter.
 
 ## Testing
 
-- Python: no pytest harness today. `bun run verify:backend` runs `py_compile` so syntax regressions surface; it does not execute imports or catch runtime SDK/env failures.
+- Python: focused pytest coverage lives under `server/tests/`; `bun run verify:backend` also runs `py_compile`.
 - TS: no Vitest harness. The verification suite has **four layers** (see `docs/ai/L1/L2/verification_scripts.md`): Python compile, contract harness (`verify-api-contracts.ts`), rewrite stub (`verify-local-proxy.ts`), and FakeAgent FastAPI smoke (`verify-local-fastapi.ts`). The `verify:web:build` step rounds them out.
-- Add Python tests under `server/tests/` if you introduce them; nothing currently imports from such a path.
+- Add Python behavior tests under `server/tests/` when changing the API contract or agent lifecycle.
 
 ## File Naming
 
@@ -78,7 +78,7 @@ There is **no ESLint config file** in `web/` — Biome is the only TS/JS linter.
 
 ## Error Handling Shapes
 
-- Python: raise `HTTPException(status_code=..., detail=str(exc))` via `_to_http_error`. FastAPI serializes the string under the JSON `detail` field.
+- Python: raise `HTTPException(status_code=..., detail=...)` via `_to_http_error`. FastAPI serializes the string under the JSON `detail` field.
 - TS: `api.ts` helpers throw on non-2xx HTTP; callers (`LandingPage`) catch with `try/catch` and surface a user-friendly message via the existing `ConnectionStatusPanel` issue list.
 
 ## Git & Docs Conventions

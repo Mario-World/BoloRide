@@ -8,15 +8,15 @@
 
 | Path           | Method | Request                                                                              | Success (200)                                                                                | Errors                                                          |
 | -------------- | ------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `/get_config`  | GET    | Query: optional `channel`, optional `uid`                                            | `{ "code": 0, "msg": "success", "data": { app_id, token, uid, channel_name, agent_uid } }`   | `500` if `agent is None`; exceptions via `_to_http_error`        |
-| `/startAgent`  | POST   | JSON `StartAgentRequest`: `channelName`, `rtcUid`, `userUid`, optional `parameters`  | `{ "code": 0, "msg": "success", "data": { agent_id, channel_name, status } }`                | `400` validation (`ValueError`); `500` runtime / generic        |
-| `/stopAgent`   | POST   | JSON `StopAgentRequest`: `agentId`                                                   | `{ "code": 0, "msg": "success" }`                                                            | Same shape                                                       |
+| `/get_config`  | GET    | New session: no query. Renewal: `channel`, `uid`, `session_ticket`                   | `{ "code": 0, "msg": "success", "data": { app_id, token, uid, channel_name, agent_uid, session_ticket } }` | `401` invalid/expired ticket; `403` session mismatch; `500` config/provider errors |
+| `/startAgent`  | POST   | JSON `StartAgentRequest`: `channelName`, `rtcUid`, `userUid`, `sessionTicket`, optional `parameters` | `{ "code": 0, "msg": "success", "data": { agent_id, channel_name, status, session_ticket } }` | `400` validation; `401` invalid/expired ticket; `403` mismatch; `500` runtime |
+| `/stopAgent`   | POST   | JSON `StopAgentRequest`: `agentId`, `channelName`, `userUid`, `sessionTicket`       | `{ "code": 0, "msg": "success" }`                                                            | `401` invalid/expired ticket; `403` mismatch; `500` runtime      |
 
-CORS middleware: `allow_origins=["*"]`, `allow_credentials=True`.
+CORS middleware uses comma-separated `AGENT_ALLOWED_ORIGINS`; credentials are disabled.
 
 `StartAgentRequest.parameters` is optional — the handler only reads `output_audio_codec` from it today.
 
-`get_config` treats missing, zero, and negative UIDs as "generate a random user UID" and returns the generated value. This keeps the single RTC+RTM token usable for RTM, where `0` is not a valid login subject.
+`get_config` creates a random channel, non-zero user UID, agent UID, and signed expiring session ticket for new sessions. Renewal requires the same channel, user UID, and matching ticket.
 
 ## Next.js Rewrites
 
@@ -35,9 +35,8 @@ CORS middleware: `allow_origins=["*"]`, `allow_credentials=True`.
 | Scope                  | Variable                                  |
 | ---------------------- | ----------------------------------------- |
 | Python server (required) | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
-| Python server (optional) | `PORT`                                   |
+| Python server (optional) | `PORT`, `AGENT_ALLOWED_ORIGINS`          |
 | Next build             | `AGENT_BACKEND_URL`                       |
-| Browser                | `NEXT_PUBLIC_AGENT_UID` (optional)        |
 
 `AGENT_BACKEND_URL` is a Next **server**-time env var (used inside `next.config.ts`), not a `NEXT_PUBLIC_*` value — do not prefix it.
 
@@ -51,40 +50,26 @@ CORS middleware: `allow_origins=["*"]`, `allow_credentials=True`.
   "msg": "success",
   "data": {
     "app_id": "string",
-    "token": "string",          // built by generate_convo_ai_token, token_expire=3600
+    "token": "string",          // generated server-side; token_expire=3600
     "uid": "string",            // serialized number
     "channel_name": "string",
-    "agent_uid": "string"
+    "agent_uid": "string",
+    "session_ticket": "string"  // signed capability; expires after 3600 seconds
   }
 }
 ```
 
-The same token grants RTC and RTM privileges.
+The same Agora token grants RTC and RTM privileges. The session ticket is an
+application capability, not an Agora token or user authentication credential.
 
 ## Managed Agent Payload
 
-`server/src/agent.py` does not POST a hand-written JSON payload to Agora — it uses the SDK builder chain:
-
-```python
-agent = (
-    AgoraAgent(...)
-    .with_stt(DeepgramSTT(model="nova-3", language="en"))
-    .with_llm(OpenAI(model="gpt-4o-mini", ...))
-    .with_tts(MiniMaxTTS(model="speech_2_6_turbo",
-                          voice_id="English_captivating_female1"))
-)
-
-session = agora_agent.create_async_session(
-    client=self.client,
-    channel=channel_name,
-    agent_uid=str(agent_uid),
-    remote_uids=[str(user_uid)],
-    enable_string_uid=False,
-    idle_timeout=30,
-    expires_in=3600,
-)
-agent_id = await session.start()
-```
+`server/src/agent.py` builds the managed agent with the installed Agora SDK
+(`AgoraAgent(...).with_stt(...).with_llm(...).with_tts(...)`) rather than
+posting a hand-written JSON payload. It enables RTM and metrics, disables tools,
+and creates a numeric-UID async session. The exact builder arguments and
+turn-detection settings are maintained in
+[Managed Agent Config](L2/managed_agent_config.md).
 
 ## RTM Event Shapes (Client-Side)
 
@@ -99,12 +84,16 @@ agent_id = await session.start()
 
 `ConversationComponent.tsx` also attaches a raw RTM `message` listener as a fallback for the same `message.error` / `message.sal_status` payloads.
 
+`ConversationComponent` also records RTC connection-state changes locally.
+Transcript events with `TurnStatus.INTERRUPTED` are displayed as interrupted
+turns. These runtime records are not persisted.
+
 ## Internal Types
 
 | Type                          | Lives in                                       | Notes                                            |
 | ----------------------------- | ---------------------------------------------- | ------------------------------------------------ |
 | `StartAgentRequest`           | `server/src/server.py`                         | pydantic, camelCase fields                       |
-| `StopAgentRequest`            | `server/src/server.py`                         | pydantic, `agentId`                              |
+| `StopAgentRequest`            | `server/src/server.py`                         | pydantic, agent ID and ticket-bound session identity |
 | `AgoraTokenData`              | `web/src/types/conversation.ts`                | Used by `LandingPage` + `ConversationComponent`  |
 | `AgoraRenewalTokens`          | `web/src/types/conversation.ts`                | Renewal handler payload                          |
 | `ConversationComponentProps`  | `web/src/types/conversation.ts`                | Includes RTM client + data                       |

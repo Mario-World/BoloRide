@@ -36,14 +36,13 @@ Until stale copies reappear elsewhere, prefer code + `docs/ai/` as the source of
 
 `normalizeTranscript` in `web/src/lib/conversation.ts` maps `uid === '0'` to the local UID before rendering. New transcript renderers must use the normalized turn list — bypassing the helper puts the user on the wrong side.
 
-## Token Renewal Uses Two `getConfig` Calls
+## Token Renewal Is Bound to the Session Ticket
 
-`handleTokenWillExpire` in `LandingPage.tsx` issues two `getConfig()` requests:
-
-- One with the RTC `client.uid` for the RTC renewal.
-- One with the stored `agoraData.uid` for the RTM renewal.
-
-`ConversationComponent` skips renewal entirely if `joinedUID` is `0`. If you change UID handling, walk this path end-to-end before merging.
+`handleTokenWillExpire` in `LandingPage.tsx` calls `getConfig()` once with the
+current channel, concrete UID, and session ticket, then applies the returned
+token to both RTC and RTM. Keep the two clients on the exact UID and channel
+issued during bootstrap. The browser-visible ticket authorizes session actions,
+but is not user authentication.
 
 ## One Token String, Concrete UID
 
@@ -58,9 +57,11 @@ The quickstart deliberately uses `generate_convo_ai_token` for both RTC and RTM 
 - Per-request data (validated body, query params) lives in pydantic models or local variables. Do not stash arbitrary request state on `Agent` — only cross-call session bookkeeping belongs there.
 - Reloading via `uvicorn --reload` re-runs `Agent()`. In production, the singleton lives for the life of the worker, so a process restart resets `_sessions`.
 
-## CORS Is Wide Open
+## CORS Configuration Is Not Authentication
 
-`server/src/server.py` uses `CORSMiddleware(allow_origins=["*"], allow_credentials=True)`. This is fine for a local quickstart but is **not** appropriate for production. Tighten this before exposing the FastAPI service publicly.
+`AGENT_ALLOWED_ORIGINS` restricts browser origins; it does not prevent non-browser
+clients from calling the API. User authentication and rate limiting remain
+production requirements.
 
 ## Env Loading Is File-Relative
 
@@ -69,6 +70,21 @@ The quickstart deliberately uses `generate_convo_ai_token` for both RTC and RTM 
 ## `server/scripts/run_fake_server.py` Is for Tests Only
 
 The fake server replaces `Agent` with `FakeAgent` and is started by `verify:local:fastapi`. Do not deploy it — it skips all real Agora calls and accepts any input.
+
+## Session Tickets and Process-Local State
+
+The backend signs expiring session tickets with HMAC-SHA256 using a
+domain-separated key derived from the server-only App Certificate. Start,
+renewal, and stop requests must validate the ticket and match its channel,
+client UID, and agent UID. Do not treat the ticket as a replacement for
+authentication. Session deduplication and active session state are process
+local; multi-worker deployments do not share them.
+
+## Reconnect Boundaries
+
+RTC and RTM token renewal use the same backend-issued identity. RTC connection
+state is surfaced in the UI, but automatic agent restarts and RTM resubscription
+after a later network loss are not implemented or live-verified.
 
 ## Server-Side Agent Flags
 
