@@ -23,3 +23,4 @@ local.properties
 /server/.pytest_cache
 /server/app/__pycache__
 /server/tests/__pycache__
+/services/business-api/.demo/

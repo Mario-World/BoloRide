@@ -1,8 +1,10 @@
 # Bolo Ride
 
 Bolo Ride is a voice-first ride-booking application targeting Telugu, Hindi,
-Kannada, and English. The current workspace contains two separate Agora voice
-quickstarts; it does not yet contain the ride-booking business system.
+Kannada, and English. The workspace preserves two separate Agora voice
+quickstarts and now includes an isolated simulated booking/payment API plus a
+watchable web demo. The booking flow is not yet connected to the live Agora
+conversation or Android client.
 
 ## Current Workspace
 
@@ -12,6 +14,8 @@ quickstarts; it does not yet contain the ride-booking business system.
 | `server/app/` | Tracked FastAPI service for Agora tokens, conversation lifecycle, and an in-memory session store. |
 | `bolo-ride-voice/web/` | Next.js voice client for the Agora Python quickstart foundation. |
 | `bolo-ride-voice/server/` | FastAPI Agora-agent service with Bolo Ride's English-only conversation prompt. Separate from root `server/app/`. |
+| `services/business-api/` | Separate FastAPI business API, SQLAlchemy persistence, Alembic migration, deterministic ride simulator, and mock payments. |
+| `docker-compose.demo.yml` | Local PostgreSQL + business API + Next.js demo stack. |
 | `docs/` | Setup and architecture guidance for the tracked Android quickstart. |
 
 The Agora Python foundation remains a separate implementation from the root
@@ -19,15 +23,53 @@ Android quickstart; no files have been moved or merged. Its local
 `server/.env` is ignored by the subtree's `.gitignore`. Keep credentials out of
 the frontend and Android client.
 
+## Quick Demo (Windows, no Docker required)
+
+Install the business API Python dependencies and web dependencies once, then
+from the repository root run:
+
+```powershell
+python -m pip install -r services\business-api\requirements.txt
+Set-Location bolo-ride-voice\web
+bun install
+Set-Location ..\..
+.\scripts\demo.ps1
+```
+
+Open [http://localhost:3000/demo](http://localhost:3000/demo). The script runs
+the business API and web app locally with SQLite and simulated rides/payments;
+press **Ctrl+C** in that terminal to stop both services. The demo database is
+kept under the ignored `services\business-api\.demo\` folder.
+
+### Optional PostgreSQL demo with Docker
+
+If Docker Desktop is running, the same demo can use PostgreSQL:
+
+```powershell
+docker compose --env-file .env.example -f docker-compose.demo.yml up --build
+```
+
+Open [http://localhost:3000/demo](http://localhost:3000/demo). The interactive
+flow calls the real business API through a server-side Next.js proxy: estimate
+a fare, explicitly confirm a booking, advance the simulated ride, and submit
+and verify a mock payment. No real ride or payment is created. The voice
+quickstart is still separate; configure its own Agora server credentials to
+test a live voice conversation.
+
+See [the business API guide](services/business-api/README.md) and
+[API contract](services/business-api/API.md) for environment variables,
+migrations, routes, and test scope.
+
 ## Current Gaps
 
-- No PostgreSQL persistence or business API exists in either project tree.
-- Fare estimation, ride-provider integration, booking confirmation, mock
-  payments, and server-side payment verification are not implemented.
+- Booking and payment APIs are not yet connected as tools to the Agora agent or
+  integrated into the Android client.
 - The Agora Python foundation is configured for English; Telugu, Hindi,
   Kannada, and code-mixed speech have not been verified.
-- No authenticated ride/business API, fare estimation, booking, or payment
-  implementation is integrated with either voice demo.
+- The Compose app remains the Agora quickstart interface, not the complete
+  passenger booking/payment UI.
+- No product-user authentication or production payment/ride provider is
+  implemented; the demo uses a local-only mock key and simulated providers.
 
 ## Architecture and Plan
 
@@ -37,9 +79,8 @@ the frontend and Android client.
 - [Existing Android architecture](docs/architecture.md)
 - [Agora Python + Next.js prototype documentation](bolo-ride-voice/README.md)
 
-The Agora Python quickstart now provides the English voice-agent foundation.
-The Android quickstart remains separate; the roadmap still gates broader
-consolidation and ride-business implementation.
+The Agora Python quickstart and the business API remain separate services.
+Large-scale repository consolidation is still intentionally deferred.
 
 ## Existing Android Quickstart
 

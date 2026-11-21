@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
+import { POST as businessProxyPost } from '../app/api/business/[...path]/route'
 import nextConfig from '../next.config'
 import { getConfig, startAgent, stopAgent } from '../src/services/api'
 
@@ -82,6 +83,8 @@ async function verifyRouteHandlersRemoved() {
     return
   }
 
+  const allowedBusinessProxy = path.join(apiDir, 'business', '[...path]', 'route.ts')
+  assert(existsSync(allowedBusinessProxy), 'the server-side business API proxy should exist')
   const pendingDirs = [apiDir]
   while (pendingDirs.length > 0) {
     const currentDir = pendingDirs.pop()
@@ -92,8 +95,77 @@ async function verifyRouteHandlersRemoved() {
       if (entry.isDirectory()) {
         pendingDirs.push(entryPath)
       }
-      assert(!entryPath.endsWith(`${path.sep}route.ts`), `${entryPath} should not exist`)
+      assert(
+        !entryPath.endsWith(`${path.sep}route.ts`) || entryPath === allowedBusinessProxy,
+        `${entryPath} should not exist`,
+      )
     }
+  }
+}
+
+async function verifyBusinessProxy() {
+  const originalFetch = globalThis.fetch
+  const originalUrl = process.env.BUSINESS_API_URL
+  const originalKey = process.env.BUSINESS_API_KEY
+  let upstreamCalls = 0
+
+  process.env.BUSINESS_API_URL = 'http://business-api.local/'
+  process.env.BUSINESS_API_KEY = 'server-only-test-key'
+  globalThis.fetch = (async (input, init) => {
+    upstreamCalls += 1
+    const url = requestUrl(input)
+    assert(
+      url.href === 'http://business-api.local/v1/bookings/validate',
+      'business proxy should forward only the allowlisted API path',
+    )
+    assert(
+      new Headers(init?.headers).get('X-API-Key') === 'server-only-test-key',
+      'business API credentials should be attached server-side',
+    )
+    assert(
+      init?.body === JSON.stringify({ pickup_location: 'Madhapur' }),
+      'business proxy should forward the JSON request body',
+    )
+    return Response.json({ valid: true })
+  }) as typeof fetch
+
+  try {
+    const context = { params: Promise.resolve({ path: ['bookings', 'validate'] }) }
+    const response = await businessProxyPost(
+      new Request('http://localhost/api/business/bookings/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pickup_location: 'Madhapur' }),
+      }),
+      context,
+    )
+    assert(response.status === 200, 'business proxy should return the upstream status')
+
+    const blocked = await businessProxyPost(
+      new Request('http://localhost/api/business/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      { params: Promise.resolve({ path: ['admin'] }) },
+    )
+    assert(blocked.status === 404, 'business proxy should reject non-allowlisted routes')
+    assert(upstreamCalls === 1, 'blocked paths should not reach the business API')
+
+    process.env.BUSINESS_API_KEY = ''
+    const unconfigured = await businessProxyPost(
+      new Request('http://localhost/api/business/bookings/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      context,
+    )
+    assert(unconfigured.status === 503, 'business proxy should report missing server configuration')
+  } finally {
+    globalThis.fetch = originalFetch
+    process.env.BUSINESS_API_URL = originalUrl ?? ''
+    process.env.BUSINESS_API_KEY = originalKey ?? ''
   }
 }
 
@@ -175,12 +247,7 @@ async function verifyApiClientRequests() {
     const session = await startAgent('test-channel', 9999, 1234, 'signed-session-ticket')
     assert(session.agent_id === 'mock-agent-id', 'POST /api/startAgent should return the agent id')
 
-    await stopAgent(
-      session.agent_id,
-      'test-channel',
-      1234,
-      session.session_ticket,
-    )
+    await stopAgent(session.agent_id, 'test-channel', 1234, session.session_ticket)
 
     assert(
       JSON.stringify(seenPaths) === JSON.stringify(['/api/get_config', '/api/startAgent', '/api/stopAgent']),
@@ -194,6 +261,7 @@ async function verifyApiClientRequests() {
 async function main() {
   await verifyRewriteContract()
   await verifyRouteHandlersRemoved()
+  await verifyBusinessProxy()
   await verifyApiClientRequests()
   console.log('API contract checks passed')
 }

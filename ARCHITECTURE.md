@@ -1,8 +1,8 @@
 # Bolo Ride Architecture
 
-**Status:** Current-state assessment and proposed target, 21 November 2026.
-The Agora Python voice foundation is implemented under `bolo-ride-voice/`;
-broader repository consolidation has not been performed.
+**Status:** The Agora voice foundation, isolated booking/payment API, and local
+web booking demo are present. The live Agora agent, web demo, and Android
+client are not yet integrated into one end-to-end voice booking flow.
 
 ## Current Architecture
 
@@ -21,6 +21,10 @@ flowchart LR
     Web --> Agora
     WebAPI --> Agora
   end
+
+  Demo["Next.js /demo"] -->|server-side API key proxy| Business["FastAPI: services/business-api"]
+  Business --> Postgres[("PostgreSQL")]
+  Business --> Simulator["Simulated ride + mock payment"]
 ```
 
 ### Existing implementations
@@ -32,7 +36,9 @@ flowchart LR
 | Nested web client | `bolo-ride-voice/web/` is a Next.js 16/React 19 voice client; it uses Agora RTC/RTM and rewrites `/api/*` to FastAPI. | A separate voice app, not integrated with the Android client. |
 | Nested FastAPI service | `bolo-ride-voice/server/src/` owns Agora token generation and agent start/stop; signed session tickets bind renewal and lifecycle requests to a generated session. | Session bookkeeping remains process-local; no ride, fare, or payment domain. |
 | Agora pipeline | The Python service uses managed Deepgram `nova-3` (`language="en"`), OpenAI `gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`. | English-only configuration; Telugu, Hindi, Kannada, and code-mixed speech are not claimed or tested. |
-| Persistence | No PostgreSQL, ORM, migration, or database configuration was found in either tree. | No durable users, fare quotes, bookings, payments, or operation records. |
+| Business API | `services/business-api/` owns typed fare, booking, simulated driver, and mock-payment routes; SQLAlchemy models and an Alembic initial migration persist records. | The API key is server-only; product-user authentication and production provider integrations are not implemented. |
+| Web booking demo | `/demo` calls the business API through an allowlisted Next.js route handler that injects `BUSINESS_API_KEY` server-side. | A manual click-through demo, not connected to the Agora transcript or live voice agent. |
+| Persistence | PostgreSQL is the configured runtime database; integration tests and migration checks use SQLite. | Live PostgreSQL startup and production concurrency behavior have not been verified. |
 
 The two services expose different session APIs and should not be treated as
 interchangeable. The root service uses versioned `/v1/conversation/*` routes;
@@ -48,8 +54,10 @@ contains or replaces the Agora App Certificate.
 ### Current security and operational boundaries
 
 - Both implementations keep the Agora App Certificate on a Python server.
+- The business API requires `X-API-Key`; the web client calls only the
+  allowlisted Next.js proxy, so the key is not included in browser bundles.
 - Neither implementation has product-user authentication for business actions;
-  neither should be exposed as a production booking/payment API as-is.
+  the local demo credentials and mock routes are not suitable for production.
 - The nested service restricts CORS to configured origins and binds token
   renewal, agent start, and agent stop to a signed session ticket. It still has
   no product-user authentication or rate limiting; CORS is not an auth boundary.
@@ -74,6 +82,7 @@ flowchart LR
   Web --> AgoraRTC["Agora RTC / RTM"]
   Voice --> AgoraAI["Agora Conversational AI"]
   AgoraAI --> Voice
+  Web -->|/demo, server-side proxy| Business["FastAPI business API"]
   Voice -->|validated server-to-server tools| Business["FastAPI business API"]
   Business --> DB[("PostgreSQL")]
   Business --> Ride["Mock ride-provider adapter"]
@@ -160,16 +169,13 @@ status.
 
 ## Missing Components
 
-- A PostgreSQL-backed business service and migration strategy.
-- Ride, fare, booking, and payment domain models and typed API contracts.
-- A simulated ride provider and mock payment provider with deterministic tests.
-- Fare estimation and explicit booking-confirmation state transitions.
-- Idempotent booking/payment mutations and server-side reconciliation/verification.
-- A secured bridge from Agora tools to the business API.
+- Connect the voice agent to the business API through typed server-to-server
+  tools; keep mock outcome simulation out of model-callable tools.
+- Integrate the business API with the Android client while keeping its API key
+  server-side.
 - Telugu, Hindi, and Kannada pipeline configuration and end-to-end voice tests.
 - A single canonical repository layout and shared verification workflow.
 - Product authentication, authorization, privacy, and production deployment controls.
 
-No concrete business routes, database schema, or provider SDK methods are
-specified here; those require product/API decisions and approval before
-implementation.
+For API routes, payload ownership, and local environment variables, see
+[the business API documentation](services/business-api/API.md).

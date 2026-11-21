@@ -1,10 +1,9 @@
 # Bolo Ride Development Roadmap
 
-This is a milestone plan, not an implementation. The workspace contains a root
-Android/FastAPI prototype and a nested Agora Python/Next.js quickstart. The
-nested app now has an English-only Bolo Ride voice foundation; no
-ride-booking business backend exists. Large code migrations and business-feature
-implementation require approval.
+This roadmap tracks the existing root Android/FastAPI prototype, nested Agora
+Python/Next.js quickstart, and the separately implemented simulated business
+API. Repository consolidation and live multilingual voice integration remain
+deferred.
 
 ## Current status
 
@@ -13,9 +12,13 @@ implementation require approval.
   OpenAI `gpt-4o-mini`, and MiniMax `speech_2_6_turbo`.
 - The Next.js client handles the RTC/RTM lifecycle, transcripts, runtime
   metrics/errors, interruption display, token renewal, and teardown.
-- The voice path has not been tested against a live Agora project. It does not
-  yet search rides, estimate fares, create bookings, or process payments.
-- The separate root Android app remains unchanged by this voice-foundation work.
+- `services/business-api/` provides SQLAlchemy booking/payment persistence,
+  Alembic migrations, fare validation, idempotency, and backend payment
+  verification.
+- `/demo` exercises the business APIs through a server-side Next.js proxy;
+  PostgreSQL/Agora/Murf and Android end-to-end flows have not been validated.
+- The voice path has not been tested against a live Agora project and is not
+  connected to the business API as a set of tools.
 
 ## Milestones
 
@@ -29,26 +32,26 @@ implementation require approval.
 **Exit criteria:** approved repository layout; no credentials included; existing
 Android and web implementations are preserved until parity is established.
 
-### 1. Define business contracts and persistence
+### 1. Harden business contracts and persistence
 
 - Agree on the minimum rider, fare quote, booking, payment, and operation
   concepts before choosing concrete schemas or routes.
-- Add PostgreSQL configuration, migrations, and repository/service boundaries
-  in the business API.
+- Validate the current PostgreSQL migration path and add stronger concurrency,
+  authorization, and operational coverage.
 - Keep the voice-agent service out of direct database access.
 
-**Exit criteria:** migrations run from a clean database; business model tests
-cover valid and invalid state transitions.
+**Exit criteria:** migrations run against PostgreSQL; business model tests cover
+valid and invalid state transitions, including concurrent idempotent requests.
 
-### 2. Add deterministic fare and ride-provider simulation
+### 2. Connect typed Agora tools to the business API
 
 - Add a mock ride-provider adapter and deterministic fare estimation.
 - Make fare inputs, currency, rounding, unavailable routes, and quote expiry
   explicit in the API contract.
 - Keep provider-specific behavior behind the business service.
 
-**Exit criteria:** repeatable tests for fare estimates and provider failures;
-the voice agent cannot create or mutate bookings through this milestone.
+**Exit criteria:** typed server-to-server tools have tests and no LLM tool can
+create a booking without explicit passenger confirmation.
 
 ### 3. Implement confirmed, idempotent booking
 
@@ -74,7 +77,7 @@ are never reported as confirmed.
 **Exit criteria:** tests cover success, decline, duplicate request, timeout,
 reconciliation, and payment/booking state mismatch.
 
-### 5. Connect Agora tools to business operations
+### 5. Add multilingual voice configuration
 
 - Add a server-to-server tool adapter from the voice-agent service to the
   authenticated business API.
@@ -86,7 +89,7 @@ reconciliation, and payment/booking state mismatch.
 business operations; server validation and confirmation rules hold even when
 the model produces malformed or repeated arguments.
 
-### 6. Deliver multilingual web voice UX
+### 6. Complete web and Android passenger experiences
 
 - Extend the implemented English voice foundation after the repository
   baseline is approved.
@@ -98,19 +101,7 @@ the model produces malformed or repeated arguments.
 **Exit criteria:** end-to-end tests for every supported language and booking
 state; no unverified booking/payment claims in the UI or spoken response.
 
-### 7. Build the future Android client
-
-- Reuse the existing Kotlin/Compose voice demo as a reference, not as a second
-  business implementation.
-- Consume the same approved API contracts and business-service authorization
-  as the web app.
-- Preserve Agora session lifecycle, interruption, microphone cleanup, and
-  token renewal behavior.
-
-**Exit criteria:** Android flows pass the same booking/payment invariants and
-voice-session tests as the web client.
-
-### 8. Production hardening
+### 7. Production hardening
 
 - Add product authentication/authorization, rate limits, privacy controls,
   observability, and deployment configuration.
