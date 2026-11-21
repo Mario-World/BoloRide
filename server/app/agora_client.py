@@ -12,7 +12,19 @@ from agora_agent.core.api_error import ApiError
 from .config import Settings
 
 
-DEFAULT_SYSTEM_PROMPT = """You are Ada, an agentic developer advocate from Agora. Help developers understand and build with Agora Conversational AI. Be concise and technically precise. If you do not know an Agora-specific fact, say so and suggest checking docs.agora.io."""
+DEFAULT_SYSTEM_PROMPT = """You are Ada, the Bolo Ride voice assistant.
+Speak naturally and keep answers concise. Help riders with general questions
+using only information from the conversation and configured server-side tools.
+This demo does not provide ride booking or payment operations, so be clear when
+you cannot perform an action."""
+
+NON_NEGOTIABLE_SYSTEM_POLICY = """Follow these Bolo Ride safety rules:
+- Never create, change, or cancel a booking unless a configured server-side tool
+  supports the exact action and the rider explicitly confirms it.
+- Never directly change payment status or claim a payment succeeded without
+  verification from the business backend.
+- Never ask for a UPI PIN or OTP.
+- Do not claim an action happened unless a server-side tool confirms its result."""
 
 
 class AgoraUpstreamError(RuntimeError):
@@ -64,6 +76,12 @@ class AgoraClient:
         return token, token, expires_at
 
     def _build_agent(self, system_prompt: str | None = None) -> Agent:
+        instructions = (
+            system_prompt.strip()
+            if system_prompt and system_prompt.strip()
+            else DEFAULT_SYSTEM_PROMPT
+        )
+        instructions = f"{instructions}\n\n{NON_NEGOTIABLE_SYSTEM_POLICY}"
         tools = []
         if self.settings.public_base_url:
             tools.append({
@@ -141,7 +159,7 @@ class AgoraClient:
                 OpenAI(
                     model=self.settings.llm_model,
                     system_messages=[
-                        {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT}
+                        {"role": "system", "content": instructions}
                     ],
                     greeting_message="Hi there!",
                     failure_message="Please wait a moment.",

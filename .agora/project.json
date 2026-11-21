@@ -1,0 +1,7 @@
+{
+  "projectId": "aCarM3UDd",
+  "projectName": "Default Project",
+  "region": "global",
+  "projectType": "standard",
+  "envPath": "server/.env.local"
+}

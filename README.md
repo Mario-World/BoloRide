@@ -1,32 +1,62 @@
-# Agora Conversational AI Android Quickstart
+# Bolo Ride
 
-This repository is a template-style Android starter for building a Voice AI app with Agora Conversational AI.
+Bolo Ride is a voice-first ride-booking application targeting Telugu, Hindi,
+Kannada, and English. The current workspace contains two separate Agora voice
+quickstarts; it does not yet contain the ride-booking business system.
 
-It gives you a Kotlin + Jetpack Compose app backed by a small Python service that:
+## Current Workspace
 
-- joins an Agora RTC channel
-- starts and manages an Agora Conversational AI agent through the backend
-- listens for transcript, agent state, and pipeline metrics over RTM
-- lets the user talk, mute, interrupt, and end the session
-- supports typed instructions, direct speech, and queued requests
-- fills long response pauses with generated phrases and static fallbacks
-- optionally looks up the project's setup and troubleshooting guidance
-- keeps the App Certificate and token generation off the Android device
+| Path | Current contents |
+| --- | --- |
+| `app/` | Tracked Kotlin + Jetpack Compose Agora voice-conversation demo. |
+| `server/app/` | Tracked FastAPI service for Agora tokens, conversation lifecycle, and an in-memory session store. |
+| `bolo-ride-voice/web/` | Untracked Next.js voice-conversation prototype from the Agora Python quickstart. |
+| `bolo-ride-voice/server/` | Untracked FastAPI Agora-agent service. This is separate from the root `server/app/` service. |
+| `docs/` | Setup and architecture guidance for the tracked Android quickstart. |
 
-## Release 1.1.0 — Agora Conversational AI v2.12
+`bolo-ride-voice/` is present in the workspace but is not tracked by the root
+Git repository. It has its own `server/.env` file, which is ignored by its
+local `.gitignore`; review the subtree and its ignore rules before staging it.
+No files have been moved or merged.
+
+## Current Gaps
+
+- No PostgreSQL persistence or business API exists in either project tree.
+- Fare estimation, ride-provider integration, booking confirmation, mock
+  payments, and server-side payment verification are not implemented.
+- Both voice-agent examples use English ASR/TTS defaults; the requested
+  multilingual experience is not implemented.
+- The two FastAPI services are independent quickstart implementations, not one
+  integrated Bolo Ride backend.
+
+## Architecture and Plan
+
+- [Architecture and current-state assessment](ARCHITECTURE.md)
+- [Development roadmap and proposed file changes](ROADMAP.md)
+- [Existing Android setup](docs/setup.md)
+- [Existing Android architecture](docs/architecture.md)
+- [Agora Python + Next.js prototype documentation](bolo-ride-voice/README.md)
+
+The roadmap is documentation only. The existing implementations remain
+untouched pending approval of a canonical project layout and the migration
+sequence.
+
+## Existing Android Quickstart
+
+The root `app/` and `server/` are the original Agora Android quickstart. The
+following setup and build instructions apply to that implementation only; they
+do not configure the separate `bolo-ride-voice/` web prototype.
+
+### Release 1.1.0 — Agora Conversational AI v2.12
 
 This release integrates the Conversational AI Engine's v2.12 features with
 `agora-agents==2.8.1` on the Python backend. Android uses RTC `4.6.4` and RTM
 `2.3.0`. Engine, Python SDK, and Android SDK versions are independent.
 
-See [the changelog](CHANGELOG.md) for the changes and [setup instructions](docs/setup.md#text-controls-and-project-guidance)
-for the new text controls and optional custom tool. Each developer runs their
-own backend and configures its HTTPS URL before building the Android app.
+See [the changelog](CHANGELOG.md) and [setup instructions](docs/setup.md) for
+the Android client, Python server, and local tunnel workflow.
 
-> [!NOTE]
-> This quickstart requires the included Python backend. Local mobile testing uses a temporary public HTTPS tunnel so the Android device can reach the development server.
-
-## Prerequisites
+### Prerequisites
 
 - Android Studio with JDK 17 or newer
 - Python 3.10 or newer
@@ -37,9 +67,9 @@ own backend and configures its HTTPS URL before building the Android app.
 
 The commands below assume a macOS or Linux shell. On Windows, run the backend scripts from WSL or an equivalent Bash environment.
 
-## Quick Start
+### Quick Start
 
-### 1. Install the Agora CLI and sign in
+#### 1. Install the Agora CLI and sign in
 
 Skip this step if `agora` is already on your `PATH`.
 
@@ -49,7 +79,7 @@ agora --help
 agora login
 ```
 
-### 2. Get the quickstart
+#### 2. Get the quickstart
 
 The recommended path lets the CLI clone the template and bind an Agora project. Replace `my-android-demo` with your app folder name:
 
@@ -69,7 +99,7 @@ cd agent-quickstart-android
 
 If you use an existing clone, you will select the Agora project when you configure the server in the next step.
 
-### 3. Configure and run the Python server
+#### 3. Configure and run the Python server
 
 ```bash
 python3 -m venv server/.venv
@@ -91,7 +121,7 @@ agora project env write server/.env.local \
 
 The server listens on `http://127.0.0.1:8000` and keeps `AGORA_APP_CERTIFICATE` off the Android device. Leave this terminal running. The local endpoint uses HTTP; the selected tunnel provider supplies the public HTTPS endpoint required by Android.
 
-### 4. Create a temporary public HTTPS URL
+#### 4. Create a temporary public HTTPS URL
 
 In another terminal, run:
 
@@ -109,7 +139,7 @@ curl https://your-public-host/health
 
 The response must be backend health JSON, not a tunnel-provider login or warning page. See [Local HTTPS tunnels](docs/local-tunnels.md) for explicit ngrok, Cloudflare Tunnel, Tailscale Funnel, and LocalTunnel commands.
 
-### 5. Configure Android
+#### 5. Configure Android
 
 Write the public server URL to root `local.properties`:
 
@@ -125,7 +155,7 @@ QUICKSTART_SERVER_URL=https://your-public-host
 
 Do not put `AGORA_APP_CERTIFICATE` in `local.properties`.
 
-### 6. Build the app
+#### 6. Build the app
 
 ```bash
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew :app:assembleDebug
@@ -133,7 +163,7 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 
 If your shell already uses JDK 17 or newer, `./gradlew :app:assembleDebug` is sufficient.
 
-### 7. Run it
+#### 7. Run it
 
 Open the project in Android Studio, or run it from the command line, then launch it on a device or emulator.
 

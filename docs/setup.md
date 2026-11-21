@@ -164,6 +164,13 @@ The `getProjectGuidance` tool calls `GET /v1/tools/guidance?topic=setup` or
 include the repository's `docs` directory when deploying the server. When
 `PUBLIC_BASE_URL` is empty, no custom tool is advertised to the agent.
 
+The default voice-agent prompt includes Bolo Ride booking and payment safety
+rules, and those rules remain present when a session supplies a custom prompt.
+This starter does not implement business booking or payment tools; the prompt
+does not replace server-side authorization or backend verification. Add those
+operations only through validated, idempotent business-backend tools, and
+require explicit rider confirmation before creating a booking.
+
 The server pins `agora-agents==2.8.1`. After pulling the update, install
 `server/requirements-dev.txt` in a Python 3.10+ environment and restart the server.
 

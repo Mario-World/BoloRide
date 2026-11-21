@@ -103,11 +103,42 @@ async def test_join_serializes_current_turn_detection_and_required_asr_params():
     # Managed credentials resolve the model through an SDK-generated preset.
     assert "deepgram_nova_3" in payload["preset"]
     assert properties["asr"]["params"]["language"] == "en"
+    instructions = properties["llm"]["system_messages"][0]["content"]
+    assert "Bolo Ride voice assistant" in instructions
+    assert "Never ask for a UPI PIN or OTP." in instructions
     filler = properties["filler_words"]
     assert filler["enable"] is True
     assert filler["content"]["mode"] == "generated"
     assert filler["content"]["generated_config"]["fallback_strategy"] == "static"
     assert len(filler["content"]["static_config"]["phrases"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_custom_system_prompt_keeps_booking_and_payment_safety_policy():
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"agent_id": "agent-1"})
+
+    sdk_settings = Settings(agora_app_id="0" * 32, agora_app_certificate="1" * 32)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http_client:
+        agora = AgoraClient(sdk_settings, http_client=http_client)
+        await agora.join_agent(
+            channel_name="room-a",
+            requester_rtc_uid=42,
+            system_prompt="Follow the rider's requested conversational style.",
+        )
+
+    properties = json.loads(requests[0].content)["properties"]
+    instructions = properties["llm"]["system_messages"][0]["content"]
+    assert "Follow the rider's requested conversational style." in instructions
+    assert "Never create, change, or cancel a booking" in instructions
+    assert "Never directly change payment status" in instructions
+    assert (
+        "Do not claim an action happened unless a server-side tool confirms its result."
+        in instructions
+    )
 
 
 @pytest.mark.asyncio
