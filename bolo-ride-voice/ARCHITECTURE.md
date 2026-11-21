@@ -68,14 +68,16 @@ The current configured chain in `server/src/agent.py` is:
 
 | Stage | Actual configuration | Credential mode |
 | --- | --- | --- |
-| ASR | Deepgram `nova-3`, `language="en"` | Agora-managed; no Deepgram key supplied |
+| ASR | Deepgram Nova-3, `language="multi"`, hints `en`, `hi`, `kn`, `te` | Agora-managed; multilingual code-switching configuration |
 | LLM | OpenAI `gpt-4o-mini`, 15-message history, max 1024 tokens | Agora-managed; no OpenAI key supplied |
-| TTS | MiniMax `speech_2_6_turbo`, voice `English_captivating_female1` | Agora-managed; no MiniMax key supplied |
+| TTS | Murf Falcon 2.1, voice `Pooja`, locale selected per session when `MURF_API_KEY` is configured | Server-side Murf key |
+| TTS fallback | MiniMax `speech_2_6_turbo` for English and Hindi | Agora-managed; Telugu/Kannada require Murf |
 
-This is an English first-step configuration. The model names, voice, or language
-setting do not establish support or quality for Telugu, Hindi, Kannada, or
-code-mixed speech. Those need explicit provider documentation review and live
-language-specific validation before being advertised.
+The web pre-call screen selects English, Hindi, Kannada, or Telugu; the selection
+is fixed for that session's response language and TTS locale. Deepgram Nova-3's
+multilingual mode is documented for all four languages and mid-sentence
+switching. This repository's tests validate configuration, not live audio
+quality or end-to-end code-switching.
 
 When `BUSINESS_API_URL`, `BUSINESS_API_KEY`, and `AGENT_PUBLIC_URL` are all
 configured, the Bolo Ride system prompt enables narrow booking tools and
@@ -190,8 +192,9 @@ be measured before setting a performance target.
 
 ## Known Limitations
 
-- English-only ASR/TTS setup; other requested languages and code-switching are
-  not verified.
+- Provider documentation covers the selected language models, but live
+  recognition, spoken output, code-switching quality, and latency are not
+  verified; Kannada/Telugu TTS also requires `MURF_API_KEY`.
 - No user authentication, request rate limiting, or durable session store.
 - Session deduplication and active `AgentSession` objects are process-local;
   multi-worker deployment and restart recovery are not implemented.

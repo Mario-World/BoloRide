@@ -19,12 +19,12 @@
 
 Edit `server/src/agent.py`:
 
-- **Prompt:** modify the `BOLO_RIDE_PROMPT` constant and preserve explicit booking confirmation, backend-authoritative fare/payment, and no-fabricated-business-action guardrails. The configured speech chain is English-only.
-- **Greeting:** change `DEFAULT_GREETING` in `server/src/agent.py`.
+- **Prompt:** update `_system_prompt` and preserve explicit booking confirmation, backend-authoritative fare/payment, and no-fabricated-business-action guardrails. `VOICE_LANGUAGES` defines the session greeting and response-language instruction.
+- **Greeting:** update the appropriate entry in `VOICE_LANGUAGES` in `server/src/agent.py`.
 - **VAD:** edit `turn_detection` dict (start/end mode, speech threshold, silence/interrupt durations).
 - **LLM:** change the `OpenAI(...)` constructor (model, history, BYOK key, base URL).
-- **STT:** change the `DeepgramSTT(...)` constructor.
-- **TTS:** change the `MiniMaxTTS(...)` constructor (`model`, `voice_id`).
+- **STT:** preserve Nova-3 multilingual mode and its `en`, `hi`, `kn`, and `te` hints unless replacing it with a provider that covers all requested languages.
+- **TTS:** update `_tts_for_language`; Murf Falcon 2.1 requires `MURF_API_KEY` for Kannada/Telugu, while managed MiniMax is the English/Hindi fallback.
 - **Agent parameters:** edit `AgoraAgent(parameters=...)` and `advanced_features` for server-side RTM data channel, error messages, metrics, and tool flags.
 - **Session:** edit `create_async_session(...)` parameters (`idle_timeout`, `expires_in`, `enable_string_uid`).
 

@@ -4,10 +4,10 @@
 
 ## Where It Lives
 
-All managed agent configuration is in `server/src/agent.py`. The browser sends
-`{ channelName, rtcUid, userUid, sessionTicket }` to `POST /startAgent`. FastAPI
-validates the signed session ticket before forwarding the session identity to
-`agent.start(...)`.
+All agent configuration is in `server/src/agent.py`. The browser sends
+`{ channelName, rtcUid, userUid, sessionTicket, language }` to `POST
+/startAgent`. FastAPI validates the signed session ticket before forwarding the
+session identity and selected response language to `agent.start(...)`.
 
 ## The Agent Builder Chain
 
@@ -16,7 +16,7 @@ validates the signed session ticket before forwarding the session identity to
 ```python
 from agora_agent import Area, AsyncAgora
 from agora_agent.agentkit import Agent as AgoraAgent
-from agora_agent.agentkit.vendors import OpenAI, DeepgramSTT, MiniMaxTTS
+from agora_agent.agentkit.vendors import OpenAI, DeepgramSTT, MiniMaxTTS, MurfTTS
 
 # --- at __init__ time ---
 self.client = AsyncAgora(
@@ -26,11 +26,20 @@ self.client = AsyncAgora(
 )
 
 # --- at start() time ---
+language = "en"
+greeting = VOICE_LANGUAGES[language]["greeting"]
+stt = DeepgramSTT(
+    model="nova-3",
+    language="multi",
+    additional_params={"language_hint": ["en", "hi", "kn", "te"]},
+)
+tts = _tts_for_language(language, os.getenv("MURF_API_KEY", "").strip())
+
 agora_agent = AgoraAgent(
     client=self.client,
     name=f"agent_{channel_name}_{agent_uid}_{int(time.time())}",
-    instructions=BOLO_RIDE_PROMPT,
-    greeting=self.greeting,
+    instructions=_system_prompt(language, booking_tools_enabled=False),
+    greeting=greeting,
     failure_message="Please wait a moment.",
     max_history=50,
     turn_detection={
@@ -53,16 +62,15 @@ agora_agent = AgoraAgent(
         "enable_error_message": True,
         "enable_metrics": True,
     },
-).with_stt(DeepgramSTT(model="nova-3", language="en")
-).with_llm(OpenAI(
+).with_stt(stt).with_llm(OpenAI(
     model="gpt-4o-mini",
-    greeting_message=self.greeting,
+    greeting_message=greeting,
     failure_message="Please wait a moment.",
     max_history=15,
     max_tokens=1024,
     temperature=0.7,
     top_p=0.95,
-)).with_tts(MiniMaxTTS(model="speech_2_6_turbo", voice_id="English_captivating_female1"))
+)).with_tts(tts)
 
 # create_async_session is synchronous; start() is async
 session = agora_agent.create_async_session(
@@ -77,9 +85,12 @@ agent_id = await session.start()
 return {"agent_id": agent_id, "channel_name": channel_name, "status": "started"}
 ```
 
-The configured models are Deepgram `nova-3` (`language="en"`), OpenAI
-`gpt-4o-mini`, and MiniMax `speech_2_6_turbo` / `English_captivating_female1`.
-The Bolo Ride prompt is English-only. When `AGENT_PUBLIC_URL`,
+The configured ASR is Deepgram Nova-3 multilingual mode with English, Hindi,
+Kannada, and Telugu hints; the LLM is OpenAI `gpt-4o-mini`. Murf Falcon 2.1
+voice `Pooja` is used with the selected locale when `MURF_API_KEY` is set;
+otherwise MiniMax is used for English and Hindi, and Kannada/Telugu starts
+require Murf configuration. `_system_prompt` selects the Bolo Ride rules and
+language-specific response instruction. When `AGENT_PUBLIC_URL`,
 `BUSINESS_API_URL`, and `BUSINESS_API_KEY` are configured, `OpenAI` receives
 the typed REST tools and `advanced_features.enable_tools` is enabled; otherwise
 the voice-only prompt explicitly says booking tools are unavailable. Booking
@@ -92,12 +103,12 @@ name.
 
 ### Change the prompt
 
-Edit the `BOLO_RIDE_PROMPT` string constant at the top of `agent.py`. Keep it
+Edit `_system_prompt` and `VOICE_LANGUAGES` in `agent.py`. Keep it
 concise and preserve the no-fabricated-booking/payment constraints.
 
 ### Change the greeting
 
-Change `DEFAULT_GREETING` in `server/src/agent.py`.
+Change the selected language's `greeting` entry in `VOICE_LANGUAGES`.
 
 ### Change VAD
 

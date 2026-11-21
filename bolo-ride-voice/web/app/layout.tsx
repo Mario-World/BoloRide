@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
 	title: "Bolo Ride · Voice Booking",
 	description:
-		"Talk with the Bolo Ride English voice assistant to estimate and confirm a simulated ride booking.",
+		"Book a simulated Bolo Ride in English, Hindi, Kannada, or Telugu by voice.",
 	icons: {
 		icon: [
 			{ url: "/favicon.ico" },

@@ -14,7 +14,11 @@ const nextConfig: NextConfig = {
   },
 
   async rewrites() {
-    const backendUrl = process.env.AGENT_BACKEND_URL?.replace(/\/$/, '')
+    const configuredBackendUrl = process.env.AGENT_BACKEND_URL?.trim()
+    const backendUrl = (
+      configuredBackendUrl ||
+      (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:8000' : '')
+    ).replace(/\/$/, '')
     if (!backendUrl) {
       return []
     }

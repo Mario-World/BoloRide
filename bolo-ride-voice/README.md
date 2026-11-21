@@ -9,10 +9,10 @@ Build a production-style voice agent with a Next.js web client and Python FastAP
 ## Bolo Ride Foundation
 
 This Agora Python quickstart is the current web voice-agent foundation for Bolo
-Ride. It provides an English conversation path and, when configured, a
-server-side tool connection to the separate Bolo Ride business API. Booking
-and payment state remain controlled by that API; the agent runs voice-only if
-the business API configuration is missing.
+Ride. It provides English, Hindi, Kannada, and Telugu voice sessions and, when
+configured, a server-side tool connection to the separate Bolo Ride business
+API. Booking and payment state remain controlled by that API; the agent runs
+voice-only if the business API configuration is missing.
 
 ## Prerequisites
 
@@ -106,12 +106,18 @@ Primary backend env file: [`server/.env.example`](server/.env.example).
 | `AGENT_PUBLIC_URL` | ✅ for tools | — | Public HTTP(S) base URL reachable by Agora for REST tool callbacks |
 | `BUSINESS_API_URL` | ✅ for tools | — | Business API URL reachable by the voice service; local default is `http://127.0.0.1:8010` |
 | `BUSINESS_API_KEY` | ✅ for tools | — | Server-to-server key; never put this in web or Android configuration |
+| `MURF_API_KEY` | Required for Kannada/Telugu voice output | — | Server-only; when configured, Murf Falcon 2.1 is used for all selected languages |
 
-The configured pipeline is Agora-managed Deepgram `nova-3` ASR
-(`language="en"`), OpenAI `gpt-4o-mini` LLM, and MiniMax
-`speech_2_6_turbo` TTS with `English_captivating_female1`. No provider API keys
-are required for this managed chain. The ASR language and TTS voice are English;
-support for Telugu, Hindi, Kannada, or code-mixed speech has not been verified.
+The configured ASR is Agora-managed Deepgram Nova-3 multilingual mode with
+English, Hindi, Kannada, and Telugu language hints. OpenAI `gpt-4o-mini` handles
+the dialogue. English and Hindi can use the managed MiniMax voice; all four
+languages use Murf Falcon 2.1 voice `Pooja` when `MURF_API_KEY` is configured.
+The selected language is fixed per call. Provider documentation supports
+multilingual recognition and switching; live audio quality still depends on
+the configured provider credentials and has not been verified in this repo.
+See the [Deepgram Nova-3 multilingual documentation](https://developers.deepgram.com/docs/nova-3-language-prompting)
+and [Murf's Falcon voice catalog](https://murf.ai/api/docs/voices-styles/voice-library)
+for the documented language and locale coverage.
 
 ## Commands
 

@@ -4,16 +4,32 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import type { VoiceLanguage } from "@/services/api";
+
+const LANGUAGE_OPTIONS = [
+	{ value: "en", label: "English" },
+	{ value: "hi", label: "हिन्दी" },
+	{ value: "kn", label: "ಕನ್ನಡ" },
+	{ value: "te", label: "తెలుగు" },
+] as const satisfies ReadonlyArray<{ value: VoiceLanguage; label: string }>;
+
+function isVoiceLanguage(value: string): value is VoiceLanguage {
+	return LANGUAGE_OPTIONS.some((option) => option.value === value);
+}
 
 type QuickstartPreCallCardProps = {
 	isLoading: boolean;
 	error: string | null;
+	language: VoiceLanguage;
+	onLanguageChange: (language: VoiceLanguage) => void;
 	onStartConversation: () => void;
 };
 
 export function QuickstartPreCallCard({
 	isLoading,
 	error,
+	language,
+	onLanguageChange,
 	onStartConversation,
 }: QuickstartPreCallCardProps) {
 	return (
@@ -31,9 +47,41 @@ export function QuickstartPreCallCard({
 				Book a ride by talking
 			</h1>
 			<p className="mt-[14px] text-sm font-medium leading-6 text-muted-foreground">
-				Speak with the English voice assistant. It can estimate a fare and
-				create a booking only after you confirm the ride details.
+				Choose a language for the assistant. It can estimate a fare and create
+				a booking only after you confirm the ride details.
 			</p>
+
+			<div className="mt-6 w-full text-left">
+				<label
+					htmlFor="voice-language"
+					className="mb-2 block text-sm font-medium text-white"
+				>
+					Conversation language
+				</label>
+				<select
+					id="voice-language"
+					value={language}
+					disabled={isLoading}
+					onChange={(event) => {
+						const nextLanguage = event.currentTarget.value;
+						if (isVoiceLanguage(nextLanguage)) {
+							onLanguageChange(nextLanguage);
+						}
+					}}
+					className="min-h-12 w-full rounded-lg border border-white/15 bg-[#161616] px-3 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+				>
+					{LANGUAGE_OPTIONS.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
+				<p className="mt-2 text-xs leading-5 text-muted-foreground">
+					Multilingual recognition supports all four languages and natural
+					switching. Kannada and Telugu voice output requires server-side
+					MURF_API_KEY configuration.
+				</p>
+			</div>
 
 			<Button
 				onClick={onStartConversation}

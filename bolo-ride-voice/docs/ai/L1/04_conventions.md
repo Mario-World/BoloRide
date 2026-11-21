@@ -22,7 +22,7 @@ There is **no ESLint config file** in `web/` — Biome is the only TS/JS linter.
 - The FastAPI `agent` instance is created once at module scope (`agent = Agent()`). `Agent.__init__` reads env via `os.environ`. Recreating `Agent` per request would be wasteful and is intentionally avoided.
 - `Agent` is **not stateless**: it holds `self._sessions: Dict[str, Any]` keyed by `agent_id` for the lifetime of the worker. Per-request data still lives in pydantic models and locals; only cross-call session bookkeeping belongs on `self`.
 - If `Agent()` fails during module load (missing env after imports succeed), the module exports `agent = None` and route handlers return `500`. `verify:backend` only compiles source; use `verify:local:fastapi` or `bun run dev` to exercise imports and startup behavior.
-- Errors are raised, not returned as tuples. Request/ticket validation returns explicit `400`/`401`/`403`; `_to_http_error` maps `ValueError` → `400` and provider/runtime errors to a sanitized `500`.
+- Errors are raised, not returned as tuples. Request/ticket validation returns explicit `400`/`401`/`403`; missing speech-provider configuration returns `503`, and unexpected provider/runtime errors remain sanitized.
 - Route failures are logged through `logging.getLogger("uvicorn.error")` with route, safe session context, and exception type; provider exceptions are not returned verbatim.
 - Type hints are used for pydantic models (`StartAgentRequest`, `StopAgentRequest`) and `Agent` method signatures.
 
@@ -30,10 +30,12 @@ There is **no ESLint config file** in `web/` — Biome is the only TS/JS linter.
 
 | Model                    | Lives in           | Fields                                        |
 | ------------------------ | ------------------ | --------------------------------------------- |
-| `StartAgentRequest`      | `server/src/server.py` | `channelName`, `rtcUid`, `userUid`, `sessionTicket`, optional `parameters` |
+| `StartAgentRequest`      | `server/src/server.py` | `channelName`, `rtcUid`, `userUid`, `sessionTicket`, `language` (`en`, `hi`, `kn`, `te`), optional `parameters` |
 | `StopAgentRequest`       | `server/src/server.py` | `agentId`, `channelName`, `userUid`, `sessionTicket` |
 
-`StartAgentRequest.parameters` is optional — `server.py` only reads `output_audio_codec` from it.
+`StartAgentRequest.language` selects the response-language/TTS locale for the
+session and defaults to `en`. The value cannot change when retrying a started
+session. `parameters` remains optional and carries `output_audio_codec`.
 
 ## JSON Contract Style
 

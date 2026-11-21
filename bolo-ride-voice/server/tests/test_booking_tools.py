@@ -143,6 +143,8 @@ def test_details_accumulate_corrections_invalidate_fare_and_revalidate():
         assert valid["valid"] is True
         estimate = await registry.invoke(token, "estimate_fare", {})
         assert estimate["fare"] == 120
+        assert estimate["booking_state"]["estimated_fare"] == 120
+        assert estimate["booking_state"]["booking_confirmation"] is False
 
         corrected = await registry.invoke(
             token,
@@ -153,6 +155,8 @@ def test_details_accumulate_corrections_invalidate_fare_and_revalidate():
             },
         )
         assert corrected["valid"] is True
+        assert corrected["booking_state"]["estimated_fare"] is None
+        assert corrected["booking_state"]["booking_confirmation"] is False
         with pytest.raises(ToolRequestError) as error:
             await registry.invoke(token, "create_booking", {"explicit_confirmation": "yes"})
         assert error.value.code == "fare_not_confirmable"
@@ -203,6 +207,8 @@ def test_booking_requires_explicit_confirmation_and_reuses_booking():
             {"explicit_confirmation": "yes"},
         )
         assert first["booking"]["status"] == "CONFIRMED"
+        assert first["booking_state"]["estimated_fare"] == 120
+        assert first["booking_state"]["booking_confirmation"] is True
         assert replay["idempotent_replay"] is True
         assert sum(path == "/v1/bookings" for _, path, _ in api.calls) == 1
 
@@ -217,7 +223,11 @@ def test_cancel_before_confirmation_discards_only_conversation_state():
         await registry.invoke(token, "validate_booking_details", _booking_details())
 
         cancelled = await registry.invoke(token, "cancel_booking", {})
-        assert cancelled == {"status": "cancelled", "booking_created": False}
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["booking_created"] is False
+        assert cancelled["booking_state"]["pickup_location"] is None
+        assert cancelled["booking_state"]["estimated_fare"] is None
+        assert cancelled["booking_state"]["booking_confirmation"] is False
         assert not any(path == "/v1/bookings" for _, path, _ in api.calls)
 
         result = await registry.invoke(

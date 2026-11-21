@@ -47,7 +47,7 @@ test('startAgent posts the payload and returns agent_id', async () => {
     msg: 'success',
     data: { agent_id: 'agent-1', session_ticket: 'started-session-ticket' },
   })
-  const result = await startAgent('ch', 111, 222, 'bootstrap-session-ticket')
+  const result = await startAgent('ch', 111, 222, 'bootstrap-session-ticket', 'hi')
   expect(result).toEqual({ agent_id: 'agent-1', session_ticket: 'started-session-ticket' })
   expect(lastCall.url).toContain('/api/startAgent')
   expect(lastCall.init?.method).toBe('POST')
@@ -56,6 +56,7 @@ test('startAgent posts the payload and returns agent_id', async () => {
     rtcUid: 111,
     userUid: 222,
     sessionTicket: 'bootstrap-session-ticket',
+    language: 'hi',
   })
 })
 
@@ -74,4 +75,26 @@ test('stopAgent posts the agentId', async () => {
 test('getConfig throws on an error response', async () => {
   mockFetch(500, { detail: 'boom' })
   await expect(getConfig()).rejects.toThrow('boom')
+})
+
+test('getConfig reports a helpful setup error when the proxy returns HTML', async () => {
+  globalThis.fetch = (async () =>
+    new Response('<!DOCTYPE html><html></html>', {
+      status: 404,
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch
+
+  await expect(getConfig()).rejects.toThrow(
+    'The voice service returned a non-JSON response (HTTP 404).',
+  )
+  await expect(getConfig()).rejects.toThrow('Start the Python voice service on port 8000')
+})
+
+test('getConfig explains when the voice service cannot be reached', async () => {
+  globalThis.fetch = (async () => {
+    throw new TypeError('fetch failed')
+  }) as typeof fetch
+
+  await expect(getConfig()).rejects.toThrow('Could not reach the voice service.')
+  await expect(getConfig()).rejects.toThrow('AGENT_BACKEND_URL points to it')
 })

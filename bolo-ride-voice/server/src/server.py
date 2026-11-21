@@ -10,7 +10,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from agora_agent.agentkit.token import generate_convo_ai_token
-from agent import Agent
+from agent import Agent, VoiceLanguageNotConfiguredError
 from booking_tools import BusinessApiError, ToolRequestError
 
 logger = logging.getLogger("uvicorn.error")
@@ -46,6 +46,8 @@ def _log_route_error(route: str, exc: Exception, **context: Any) -> None:
 
 
 def _to_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, VoiceLanguageNotConfiguredError):
+        return HTTPException(status_code=503, detail=str(exc))
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Agora agent operation failed")
@@ -146,7 +148,7 @@ except ValueError:
 app = FastAPI(
     title="Bolo Ride Voice Agent",
     version="1.0.0",
-    description="English voice conversation service using Agora Conversational AI",
+    description="Multilingual ride-booking voice service using Agora Conversational AI",
 )
 
 allowed_origins = [
@@ -176,6 +178,7 @@ class StartAgentRequest(BaseModel):
     rtcUid: int = Field(gt=AGENT_UID_MIN - 1, le=AGENT_UID_MAX)
     userUid: int = Field(ge=USER_UID_MIN, le=USER_UID_MAX)
     sessionTicket: str = Field(min_length=16, max_length=8192)
+    language: Literal["en", "hi", "kn", "te"] = "en"
     parameters: Optional[Dict[str, Any]] = None
 
 
@@ -315,6 +318,11 @@ async def start_agent(request: StartAgentRequest):
             if previous:
                 if previous["stopped"]:
                     raise HTTPException(status_code=409, detail="Agent session has already stopped")
+                if previous["language"] != request.language:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The language is already fixed for this voice session.",
+                    )
                 result = dict(previous["result"])
             else:
                 result = await agent.start(
@@ -322,6 +330,7 @@ async def start_agent(request: StartAgentRequest):
                     agent_uid=request.rtcUid,
                     user_uid=request.userUid,
                     output_audio_codec=output_audio_codec,
+                    language=request.language,
                 )
                 claims["agent_id"] = result["agent_id"]
                 result["session_ticket"] = _create_session_ticket(claims)
@@ -329,6 +338,7 @@ async def start_agent(request: StartAgentRequest):
                     "result": dict(result),
                     "stopped": False,
                     "expires_at": claims["expires_at"],
+                    "language": request.language,
                 }
         return {"code": 0, "msg": "success", "data": result}
     except HTTPException:

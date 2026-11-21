@@ -1,6 +1,6 @@
 # agora-conversational-ai-demo (python) — Repo Card
 
-> Bolo Ride's English-only Agora voice-booking foundation: Next.js client + FastAPI session lifecycle and optional typed server-to-server booking tools.
+> Bolo Ride's multilingual Agora voice-booking foundation: Next.js language selection, FastAPI session lifecycle, and optional typed server-to-server booking tools.
 
 ## Identity
 

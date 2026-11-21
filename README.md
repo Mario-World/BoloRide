@@ -25,21 +25,29 @@ the frontend and Android client.
 
 ## Quick Demo (Windows, no Docker required)
 
-Install the business API Python dependencies and web dependencies once, then
-from the repository root run:
+Install the business API and voice-agent Python dependencies and web
+dependencies once. Copy `bolo-ride-voice\server\.env.example` to
+`bolo-ride-voice\server\.env` and configure valid Agora App ID and App
+Certificate values without committing the file. Then from the repository root:
 
 ```powershell
 python -m pip install -r services\business-api\requirements.txt
-Set-Location bolo-ride-voice\web
+python -m pip install -r bolo-ride-voice\server\requirements.txt
+Set-Location bolo-ride-voice
 bun install
-Set-Location ..\..
+Set-Location ..
 .\scripts\demo.ps1
 ```
 
-Open [http://localhost:3000/demo](http://localhost:3000/demo). The script runs
-the business API and web app locally with SQLite and simulated rides/payments;
-press **Ctrl+C** in that terminal to stop both services. The demo database is
-kept under the ignored `services\business-api\.demo\` folder.
+Open [http://localhost:3000](http://localhost:3000) for the mobile-first live
+voice UI or [http://localhost:3000/demo](http://localhost:3000/demo) for the
+tap-through booking/payment demo. The script starts the Agora voice API,
+business API, and web app locally; the business API uses SQLite and simulated
+rides/payments. Press **Ctrl+C** in that terminal to stop all services. The
+demo database is kept under the ignored `services\business-api\.demo\` folder.
+For Agora to execute booking tools, set `AGENT_PUBLIC_URL` in the voice
+service's `.env` to a publicly reachable HTTPS tunnel; voice-only mode works
+without that callback URL.
 
 ### Optional PostgreSQL demo with Docker
 

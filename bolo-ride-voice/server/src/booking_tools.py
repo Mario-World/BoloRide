@@ -102,21 +102,21 @@ class ExplicitConfirmationInput(BaseModel):
 
 @dataclass
 class BookingConversationState:
-    details: dict[str, Any] = field(
-        default_factory=lambda: {
-            "passenger_name": None,
-            "pickup_location": None,
-            "destination": None,
-            "vehicle_category": None,
-            "passenger_count": None,
-            "payment_preference": None,
-        }
-    )
+    details: BookingDetailsInput = field(default_factory=BookingDetailsInput)
     estimate: dict[str, Any] | None = None
+    estimated_fare: int | None = None
+    booking_confirmation: bool = False
     booking: dict[str, Any] | None = None
     payment: dict[str, Any] | None = None
     booking_idempotency_key: str = field(default_factory=lambda: str(uuid.uuid4()))
     payment_idempotency_key: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            **self.details.model_dump(),
+            "estimated_fare": self.estimated_fare,
+            "booking_confirmation": self.booking_confirmation,
+        }
 
 
 @dataclass
@@ -273,24 +273,29 @@ class BookingToolRegistry:
                 "The confirmed booking cannot be edited. Cancel it or retrieve its status.",
             )
 
+        details = state.details.model_dump()
         changed = False
         for field_name, value in request.model_dump().items():
-            if value is not None and state.details[field_name] != value:
-                state.details[field_name] = value
+            if value is not None and details[field_name] != value:
+                details[field_name] = value
                 changed = True
         if changed:
+            state.details = BookingDetailsInput.model_validate(details)
             state.estimate = None
+            state.estimated_fare = None
+            state.booking_confirmation = False
             state.booking_idempotency_key = str(uuid.uuid4())
 
         validation = await self.business_api.request(
             "POST",
             "/v1/bookings/validate",
-            body=state.details,
+            body=state.details.model_dump(),
         )
         return {
             "status": "valid" if validation.get("valid") else "needs_details",
             **validation,
-            "collected_details": state.details,
+            "collected_details": state.details.model_dump(),
+            "booking_state": state.snapshot(),
         }
 
     async def _estimate_fare(
@@ -305,7 +310,7 @@ class BookingToolRegistry:
         validation = await self.business_api.request(
             "POST",
             "/v1/bookings/validate",
-            body=state.details,
+            body=state.details.model_dump(),
         )
         if not validation.get("valid"):
             return {"status": "needs_details", **validation}
@@ -314,23 +319,30 @@ class BookingToolRegistry:
             "POST",
             "/v1/fare-estimates",
             body={
-                "pickup": state.details["pickup_location"],
-                "destination": state.details["destination"],
-                "vehicle_category": state.details["vehicle_category"],
-                "passenger_count": state.details["passenger_count"],
+                "pickup": state.details.pickup_location,
+                "destination": state.details.destination,
+                "vehicle_category": state.details.vehicle_category,
+                "passenger_count": state.details.passenger_count,
             },
         )
         if estimate.get("status") != "estimated" or estimate.get("fare") is None:
             state.estimate = None
-            return {"status": "needs_clarification", **estimate}
+            state.estimated_fare = None
+            return {
+                "status": "needs_clarification",
+                **estimate,
+                "booking_state": state.snapshot(),
+            }
 
         state.estimate = estimate
+        state.estimated_fare = estimate["fare"]
         return {
             "status": "estimated",
             "fare": estimate["fare"],
             "currency": estimate.get("currency", "INR"),
             "distance_km": estimate.get("distance_km"),
-            "trip_details": state.details,
+            "trip_details": state.details.model_dump(),
+            "booking_state": state.snapshot(),
             "next_step": "Read back the trip and fare, then ask for explicit passenger confirmation.",
         }
 
@@ -341,8 +353,17 @@ class BookingToolRegistry:
     ) -> dict[str, Any]:
         request = ExplicitConfirmationInput.model_validate(payload)
         if state.booking is not None:
-            return {"status": "created", "booking": state.booking, "idempotent_replay": True}
-        if state.estimate is None or state.estimate.get("status") != "estimated":
+            return {
+                "status": "created",
+                "booking": state.booking,
+                "booking_state": state.snapshot(),
+                "idempotent_replay": True,
+            }
+        if (
+            state.estimate is None
+            or state.estimate.get("status") != "estimated"
+            or state.estimated_fare is None
+        ):
             raise ToolRequestError(
                 409,
                 "fare_not_confirmable",
@@ -350,8 +371,8 @@ class BookingToolRegistry:
             )
 
         booking_details = {
-            **state.details,
-            "estimated_fare": state.estimate["fare"],
+            **state.details.model_dump(),
+            "estimated_fare": state.estimated_fare,
             "booking_confirmation": request.explicit_confirmation == "yes",
         }
         booking = await self.business_api.request(
@@ -363,9 +384,14 @@ class BookingToolRegistry:
             },
         )
         state.booking = booking
+        state.booking_confirmation = True
         state.payment = None
         state.payment_idempotency_key = str(uuid.uuid4())
-        return {"status": "created", "booking": booking}
+        return {
+            "status": "created",
+            "booking": booking,
+            "booking_state": state.snapshot(),
+        }
 
     async def _get_booking_status(
         self,
@@ -391,12 +417,18 @@ class BookingToolRegistry:
         if payload:
             raise ToolRequestError(422, "unexpected_arguments", "Cancellation takes no arguments.")
         if state.booking is None:
-            state.details = BookingConversationState().details
+            state.details = BookingDetailsInput()
             state.estimate = None
+            state.estimated_fare = None
+            state.booking_confirmation = False
             state.booking_idempotency_key = str(uuid.uuid4())
             state.payment_idempotency_key = str(uuid.uuid4())
             state.payment = None
-            return {"status": "cancelled", "booking_created": False}
+            return {
+                "status": "cancelled",
+                "booking_created": False,
+                "booking_state": state.snapshot(),
+            }
         booking = await self.business_api.request(
             "POST",
             f"/v1/bookings/{state.booking['booking_id']}/cancel",

@@ -59,7 +59,7 @@ Do not recreate Agora ConvoAI integration from memory. Provider schemas, SDK bui
 | ID | Surface | How to extend | Required follow-up |
 | -- | ------- | ------------- | ------------------ |
 | `api.routes` | `server/src/server.py`, `web/next.config.ts`, `web/src/services/api.ts` | Add FastAPI route, add rewrite, add browser fetch helper. | Extend `web/scripts/verify-api-contracts.ts`; add smoke coverage if the route belongs in local verification. |
-| `agent.managed-config` | `server/src/agent.py` | Change `BOLO_RIDE_PROMPT`, `DEFAULT_GREETING`, `turn_detection`, `OpenAI`, `DeepgramSTT`, `MiniMaxTTS`, `parameters`, or session options. | Run backend compile and local FastAPI smoke checks; document new env vars in `server/.env.example`. |
+| `agent.managed-config` | `server/src/agent.py` | Change `_system_prompt`, `VOICE_LANGUAGES`, `turn_detection`, `OpenAI`, `DeepgramSTT`, `_tts_for_language`, `parameters`, or session options. | Run backend compile and local FastAPI smoke checks; document new env vars in `server/.env.example`. |
 | `web.conversation-ui` | `web/src/components/*`, `web/src/lib/conversation.ts` | Customize pre-call, transcript, metrics, connection status, microphone, or visualizer UI. | Preserve RTC/RTM lifecycle ownership and transcript UID normalization. |
 | `verification.contracts` | `web/scripts/*.ts`, root `package.json` | Add contract checks for new browser/backend boundaries. | Keep checks runnable without live Agora credentials where possible. |
 

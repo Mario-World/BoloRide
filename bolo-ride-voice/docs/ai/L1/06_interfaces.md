@@ -9,12 +9,14 @@
 | Path           | Method | Request                                                                              | Success (200)                                                                                | Errors                                                          |
 | -------------- | ------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `/get_config`  | GET    | New session: no query. Renewal: `channel`, `uid`, `session_ticket`                   | `{ "code": 0, "msg": "success", "data": { app_id, token, uid, channel_name, agent_uid, session_ticket } }` | `401` invalid/expired ticket; `403` session mismatch; `500` config/provider errors |
-| `/startAgent`  | POST   | JSON `StartAgentRequest`: `channelName`, `rtcUid`, `userUid`, `sessionTicket`, optional `parameters` | `{ "code": 0, "msg": "success", "data": { agent_id, channel_name, status, session_ticket } }` | `400` validation; `401` invalid/expired ticket; `403` mismatch; `500` runtime |
+| `/startAgent`  | POST   | JSON `StartAgentRequest`: `channelName`, `rtcUid`, `userUid`, `sessionTicket`, `language` (`en`, `hi`, `kn`, `te`, default `en`), optional `parameters` | `{ "code": 0, "msg": "success", "data": { agent_id, channel_name, status, session_ticket } }` | `400` validation; `401` invalid/expired ticket; `403` mismatch; `409` language/session conflict; `503` missing speech-provider configuration; `500` runtime |
 | `/stopAgent`   | POST   | JSON `StopAgentRequest`: `agentId`, `channelName`, `userUid`, `sessionTicket`       | `{ "code": 0, "msg": "success" }`                                                            | `401` invalid/expired ticket; `403` mismatch; `500` runtime      |
 
 CORS middleware uses comma-separated `AGENT_ALLOWED_ORIGINS`; credentials are disabled.
 
-`StartAgentRequest.parameters` is optional — the handler only reads `output_audio_codec` from it today.
+`StartAgentRequest.language` selects the response language and TTS locale for
+the session. The same language must be used for idempotent start retries.
+`parameters` is optional and carries `output_audio_codec`.
 
 `get_config` creates a random channel, non-zero user UID, agent UID, and signed expiring session ticket for new sessions. Renewal requires the same channel, user UID, and matching ticket.
 
@@ -35,7 +37,7 @@ CORS middleware uses comma-separated `AGENT_ALLOWED_ORIGINS`; credentials are di
 | Scope                  | Variable                                  |
 | ---------------------- | ----------------------------------------- |
 | Python server (required) | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` |
-| Python server (optional) | `PORT`, `AGENT_ALLOWED_ORIGINS`          |
+| Python server (optional) | `PORT`, `AGENT_ALLOWED_ORIGINS`, `MURF_API_KEY` |
 | Next build             | `AGENT_BACKEND_URL`                       |
 
 `AGENT_BACKEND_URL` is a Next **server**-time env var (used inside `next.config.ts`), not a `NEXT_PUBLIC_*` value — do not prefix it.

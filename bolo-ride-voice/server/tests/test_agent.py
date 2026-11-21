@@ -30,6 +30,7 @@ def test_agent_constructs_with_full_env(fake_env):
 def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
     for key in ("BUSINESS_API_URL", "BUSINESS_API_KEY", "AGENT_PUBLIC_URL"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("MURF_API_KEY", raising=False)
     agent = _fresh_agent_module()
     captured = {}
     original_agent_builder = agent.AgoraAgent
@@ -90,12 +91,18 @@ def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
     assert "vendor" not in captured["llm"]  # managed OpenAI has no custom vendor key
     assert captured["channel"] == "ch"
     assert captured["remote_uids"] == ["222"]
-    assert captured["stt"] == {"model": "nova-3", "language": "en"}
+    assert captured["stt"] == {
+        "model": "nova-3",
+        "language": "multi",
+        "additional_params": {"language_hint": ["en", "hi", "kn", "te"]},
+    }
     assert captured["tts"] == {
         "model": "speech_2_6_turbo",
         "voice_id": "English_captivating_female1",
+        "language_boost": "English",
     }
-    assert "Bolo Ride's English-language voice assistant" in captured["agent_config"]["instructions"]
+    assert "selected English as their preferred response language" in captured["agent_config"]["instructions"]
+    assert captured["agent_config"]["greeting"].startswith("Hello")
     assert captured["agent_config"]["advanced_features"]["enable_rtm"] is True
     assert captured["agent_config"]["advanced_features"]["enable_tools"] is False
     assert (
@@ -107,6 +114,7 @@ def test_start_wires_managed_openai_and_returns_shape(fake_env, monkeypatch):
 
 
 def test_start_enables_session_scoped_business_tools_when_configured(fake_env, monkeypatch):
+    monkeypatch.delenv("MURF_API_KEY", raising=False)
     monkeypatch.setenv("BUSINESS_API_URL", "http://business-api.local")
     monkeypatch.setenv("BUSINESS_API_KEY", "business-secret-for-test")
     monkeypatch.setenv("AGENT_PUBLIC_URL", "https://voice.example.com")
@@ -162,6 +170,44 @@ def test_start_enables_session_scoped_business_tools_when_configured(fake_env, m
     with pytest.raises(agent.ToolRequestError) as error:
         asyncio.run(instance.tool_registry.invoke(tool_token, "estimate_fare", {}))
     assert error.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("language", "locale"),
+    [
+        ("en", "en-IN"),
+        ("hi", "hi-IN"),
+        ("kn", "kn-IN"),
+        ("te", "te-IN"),
+    ],
+)
+def test_murf_voice_is_configured_for_each_supported_language(fake_env, language, locale):
+    agent = _fresh_agent_module()
+    tts = agent._tts_for_language(language, "test-murf-key")
+
+    assert isinstance(tts, agent.MurfTTS)
+    assert tts.voice_id == "Pooja"
+    assert tts.locale == locale
+    assert tts.model == "falcon-2.1"
+
+
+@pytest.mark.parametrize("language", ["kn", "te"])
+def test_kannada_and_telugu_require_murf_voice_output(fake_env, language):
+    agent = _fresh_agent_module()
+
+    with pytest.raises(agent.VoiceLanguageNotConfiguredError):
+        agent._tts_for_language(language, "")
+
+
+def test_system_prompt_sets_language_and_retains_booking_safety(fake_env):
+    agent = _fresh_agent_module()
+
+    prompt = agent._system_prompt("hi", booking_tools_enabled=True)
+
+    assert "selected Hindi as their preferred response language" in prompt
+    assert "Hindi using Devanagari script" in prompt
+    assert 'explicit_confirmation="yes"' in prompt
+    assert "Never ask for a UPI PIN, OTP, or banking credentials" in prompt
 
 
 def test_start_validates_arguments(fake_env, monkeypatch):

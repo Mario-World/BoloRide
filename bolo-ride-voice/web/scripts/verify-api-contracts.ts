@@ -46,6 +46,7 @@ function getRequestBody(init: RequestInit | undefined) {
 
 async function verifyRewriteContract() {
   const originalBackendUrl = process.env.AGENT_BACKEND_URL
+  const originalNodeEnv = process.env.NODE_ENV
   process.env.AGENT_BACKEND_URL = 'http://localhost:8000/'
 
   try {
@@ -68,11 +69,28 @@ async function verifyRewriteContract() {
       ),
       'next.config.ts should rewrite /api/stopAgent to /stopAgent on the Python backend',
     )
+
+    process.env.AGENT_BACKEND_URL = ''
+    assert(Reflect.set(process.env, 'NODE_ENV', 'development'), 'unable to set NODE_ENV for contract checks')
+    const developmentRewrites = await getRewrites()
+    assert(
+      developmentRewrites.some(
+        (rewrite) =>
+          rewrite.source === '/api/get_config' &&
+          rewrite.destination === 'http://127.0.0.1:8000/get_config',
+      ),
+      'development should default voice API rewrites to the local FastAPI service',
+    )
   } finally {
     if (originalBackendUrl) {
       process.env.AGENT_BACKEND_URL = originalBackendUrl
     } else {
       process.env.AGENT_BACKEND_URL = ''
+    }
+    if (originalNodeEnv) {
+      assert(Reflect.set(process.env, 'NODE_ENV', originalNodeEnv), 'unable to restore NODE_ENV after contract checks')
+    } else {
+      assert(Reflect.deleteProperty(process.env, 'NODE_ENV'), 'unable to clear NODE_ENV after contract checks')
     }
   }
 }
@@ -210,6 +228,7 @@ async function verifyApiClientRequests() {
       assert(body.rtcUid === 9999, 'POST /api/startAgent should include rtcUid')
       assert(body.userUid === 1234, 'POST /api/startAgent should include userUid')
       assert(body.sessionTicket === 'signed-session-ticket', 'POST /api/startAgent should include the bootstrap ticket')
+      assert(body.language === 'en', 'POST /api/startAgent should default to English')
 
       return Response.json({
         code: 0,

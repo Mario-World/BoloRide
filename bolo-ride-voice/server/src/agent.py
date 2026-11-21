@@ -5,12 +5,12 @@ High-level API for managing Agora Conversational AI Agents.
 """
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 from urllib.parse import urlparse
 
 from agora_agent import Area, AsyncAgora
 from agora_agent.agentkit import Agent as AgoraAgent
-from agora_agent.agentkit.vendors import DeepgramSTT, MiniMaxTTS, OpenAI
+from agora_agent.agentkit.vendors import DeepgramSTT, MiniMaxTTS, MurfTTS, OpenAI
 
 from booking_tools import (
     BusinessApiClient,
@@ -21,21 +21,86 @@ from booking_tools import (
 
 logger = logging.getLogger("uvicorn.error")
 
-BOLO_RIDE_PROMPT = """You are Bolo Ride's English-language ride-booking assistant.
+VoiceLanguage = Literal["en", "hi", "kn", "te"]
 
-Speak naturally and clearly in English. Collect pickup, destination, vehicle category, and passenger count progressively. Passenger name and payment preference are optional. Use validate_booking_details when the passenger gives or corrects trip information; preserve details already collected and ask only for missing or ambiguous information.
+VOICE_LANGUAGES = {
+    "en": {
+        "name": "English",
+        "locale": "en-IN",
+        "greeting": "Hello, you're speaking with Bolo Ride. How can I help you today?",
+        "instruction": "Speak naturally and clearly in English.",
+    },
+    "hi": {
+        "name": "Hindi",
+        "locale": "hi-IN",
+        "greeting": "नमस्ते, आप बोलो राइड से बात कर रहे हैं। मैं आपकी क्या मदद कर सकता हूँ?",
+        "instruction": "Speak naturally in Hindi using Devanagari script.",
+    },
+    "kn": {
+        "name": "Kannada",
+        "locale": "kn-IN",
+        "greeting": "ನಮಸ್ಕಾರ, ನೀವು ಬೋಲೋ ರೈಡ್‌ನೊಂದಿಗೆ ಮಾತನಾಡುತ್ತಿದ್ದೀರಿ. ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಬಹುದು?",
+        "instruction": "Speak naturally in Kannada using Kannada script.",
+    },
+    "te": {
+        "name": "Telugu",
+        "locale": "te-IN",
+        "greeting": "నమస్కారం, మీరు బోలో రైడ్‌తో మాట్లాడుతున్నారు. నేను మీకు ఎలా సహాయం చేయగలను?",
+        "instruction": "Speak naturally in Telugu using Telugu script.",
+    },
+}
 
-Use estimate_fare only when the trip details validate. Read back the pickup, destination, vehicle, passenger count, and backend fare, then ask whether the passenger explicitly confirms. Call create_booking only after a clear affirmative answer to that fare read-back; never treat silence, a question, or an earlier general request as confirmation. The booking tool requires explicit_confirmation="yes". After booking, report only the returned booking reference and status.
+ASR_LANGUAGE_HINTS = ["en", "hi", "kn", "te"]
 
-Do not invent locations, fares, bookings, drivers, or payment results. Offer cancellation through cancel_booking. Create a mock payment order only after the passenger asks to proceed; an order is not a successful payment. A successful simulated result remains pending until verify_payment returns status VERIFIED. Never ask for a UPI PIN, OTP, or banking credentials. Keep replies concise and ask the passenger to clarify unclear speech.
-"""
 
-VOICE_ONLY_PROMPT = """You are Bolo Ride's English-language voice assistant.
+class VoiceLanguageNotConfiguredError(RuntimeError):
+    pass
 
-Speak naturally and clearly in English. Ride booking services are not configured in this session. Do not invent availability, prices, driver details, booking status, or payment outcomes, and do not claim a ride is booked or paid. Never request a UPI PIN or OTP. Keep replies concise and ask the rider to repeat or clarify when speech is unclear.
-"""
 
-DEFAULT_GREETING = "Hello, you're speaking with Bolo Ride. How can I help you today?"
+def _tts_for_language(language: VoiceLanguage, murf_api_key: str) -> MurfTTS | MiniMaxTTS:
+    if language not in VOICE_LANGUAGES:
+        raise ValueError("language must be one of en, hi, kn, or te")
+
+    if murf_api_key:
+        return MurfTTS(
+            key=murf_api_key,
+            voice_id="Pooja",
+            model="falcon-2.1",
+            locale=VOICE_LANGUAGES[language]["locale"],
+        )
+
+    if language in {"kn", "te"}:
+        raise VoiceLanguageNotConfiguredError(
+            "MURF_API_KEY is required for Kannada and Telugu voice output."
+        )
+
+    return MiniMaxTTS(
+        model="speech_2_6_turbo",
+        voice_id="English_captivating_female1",
+        language_boost="Hindi" if language == "hi" else "English",
+    )
+
+
+def _system_prompt(language: VoiceLanguage, *, booking_tools_enabled: bool) -> str:
+    language_name = VOICE_LANGUAGES[language]["name"]
+    language_instruction = VOICE_LANGUAGES[language]["instruction"]
+    language_rules = f"""The passenger selected {language_name} as their preferred response language.
+{language_instruction} Understand English, Hindi, Kannada, and Telugu, including natural code-switching. Reply primarily in the selected language, preserve place names as provided, and only code-switch when it sounds natural for the passenger and the configured speech model."""
+
+    if not booking_tools_enabled:
+        return f"""You are Bolo Ride's multilingual voice assistant.
+
+{language_rules}
+Ride booking services are not configured in this session. Do not invent availability, prices, driver details, booking status, or payment outcomes, and do not claim a ride is booked or paid. Never request a UPI PIN, OTP, or banking credentials. Keep replies concise and ask the rider to repeat or clarify when speech is unclear."""
+
+    return f"""You are Bolo Ride's helpful, multilingual ride-booking assistant.
+
+{language_rules}
+Collect pickup, destination, vehicle category, and passenger count progressively. Passenger name and payment preference are optional. Use validate_booking_details when the passenger gives or corrects trip information; preserve details already collected and ask only for missing or ambiguous information.
+
+Use estimate_fare only when the trip details validate. Read back pickup, destination, vehicle, passenger count, and the backend fare, then ask whether the passenger explicitly confirms. Call create_booking only after a clear affirmative answer to that read-back; never treat silence, a question, or an earlier general request as confirmation. The booking tool requires explicit_confirmation="yes". After booking, report only the returned booking reference and status.
+
+Do not invent locations, fares, bookings, drivers, or payment results. Offer cancellation through cancel_booking. Create a mock payment order only after the passenger asks to proceed; an order is not a successful payment. A successful simulated result remains pending until verify_payment returns status VERIFIED. Never ask for a UPI PIN, OTP, or banking credentials. Keep replies concise and ask the passenger to clarify unclear speech."""
 
 
 class Agent:
@@ -49,7 +114,6 @@ class Agent:
     def __init__(self):
         self.app_id = os.getenv("AGORA_APP_ID")
         self.app_certificate = os.getenv("AGORA_APP_CERTIFICATE")
-        self.greeting = DEFAULT_GREETING
 
         if not self.app_id or not self.app_certificate:
             raise ValueError("AGORA_APP_ID and AGORA_APP_CERTIFICATE are required")
@@ -100,20 +164,29 @@ class Agent:
         agent_uid: int,
         user_uid: int,
         output_audio_codec: Optional[str] = None,
+        language: VoiceLanguage = "en",
     ) -> Dict[str, Any]:
-        """Start agent with the same default vendor chain as the Next.js quickstart."""
+        """Start a multilingual session with the configured speech vendors."""
         if not channel_name or not str(channel_name).strip():
             raise ValueError("channel_name is required and cannot be empty")
         if agent_uid <= 0:
             raise ValueError("agent_uid is required and cannot be empty")
         if user_uid <= 0:
             raise ValueError("user_uid is required and cannot be empty")
+        if language not in VOICE_LANGUAGES:
+            raise ValueError("language must be one of en, hi, kn, or te")
 
-        # Default managed path: DeepgramSTT + OpenAI + MiniMaxTTS.
+        greeting = VOICE_LANGUAGES[language]["greeting"]
+        tts = _tts_for_language(language, os.getenv("MURF_API_KEY", "").strip())
+        stt = DeepgramSTT(
+            model="nova-3",
+            language="multi",
+            additional_params={"language_hint": ASR_LANGUAGE_HINTS},
+        )
         tool_token = self.tool_registry.create_session() if self.tool_registry else None
         llm_options: dict[str, Any] = {
             "model": "gpt-4o-mini",
-            "greeting_message": self.greeting,
+            "greeting_message": greeting,
             "failure_message": "Please wait a moment.",
             "max_history": 15,
             "max_tokens": 1024,
@@ -125,11 +198,6 @@ class Agent:
             llm_options["template_variables"] = {"bolo_tool_token": tool_token}
 
         llm = OpenAI(**llm_options)
-        stt = DeepgramSTT(model="nova-3", language="en")
-        tts = MiniMaxTTS(model="speech_2_6_turbo", voice_id="English_captivating_female1")
-
-        # Optional BYOK example: replace the STT block above and set DEEPGRAM_API_KEY.
-        # stt = DeepgramSTT(api_key=os.getenv("DEEPGRAM_API_KEY"), model="nova-3", language="en")
 
         # Optional BYOK example: replace the LLM block above and set OPENAI_API_KEY.
         # llm = OpenAI(
@@ -162,8 +230,8 @@ class Agent:
 
         agora_agent = AgoraAgent(
             client=self.client,
-            instructions=BOLO_RIDE_PROMPT if tool_token else VOICE_ONLY_PROMPT,
-            greeting=self.greeting,
+            instructions=_system_prompt(language, booking_tools_enabled=tool_token is not None),
+            greeting=greeting,
             failure_message="Please wait a moment.",
             max_history=50,
             turn_detection={
@@ -205,10 +273,11 @@ class Agent:
         )
 
         logger.info(
-            "Starting Agora agent channel=%s agent_uid=%s user_uid=%s",
+            "Starting Agora agent channel=%s agent_uid=%s user_uid=%s language=%s",
             channel_name,
             agent_uid,
             user_uid,
+            language,
         )
 
         try:

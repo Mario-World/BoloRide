@@ -23,7 +23,7 @@
 
 1. `LandingPage` calls `getConfig()` → `GET /api/get_config` → FastAPI creates random channel/UIDs and returns `data: { app_id, token, uid, channel_name, agent_uid, session_ticket }`.
 2. In parallel:
-   - `startAgent(channel_name, Number(agent_uid), Number(uid), session_ticket)` → `POST /api/startAgent` → FastAPI verifies the ticket and starts the managed agent; response contains an agent-bound ticket.
+   - `startAgent(channel_name, Number(agent_uid), Number(uid), session_ticket, language)` → `POST /api/startAgent` → FastAPI verifies the ticket and starts the managed agent in the selected response language; response contains an agent-bound ticket.
    - `new AgoraRTM.RTM(appId, uid).login({ token })` → wait for `CONNECTED` (10-second timeout) → `subscribe(channel_name)`.
 3. `ConversationComponent` mounts inside a dynamic `AgoraRTCProvider` (RTC client in `useRef` for StrictMode safety) and:
    - `useJoin` joins RTC.
@@ -33,10 +33,15 @@
 4. End: `stopAgent(agentId, channel, uid, sessionTicket)` → `POST /api/stopAgent` → FastAPI verifies ticket ownership and stops the agent. The component releases the microphone, then `rtmClient.logout()` follows.
 5. Renewal: on RTC `token-privilege-will-expire`, the client makes one ticket-authenticated `getConfig({ channel, uid, sessionTicket })` request and renews RTC and RTM with the same concrete UID.
 
-The managed chain is Deepgram `nova-3` (`language="en"`) → OpenAI
-`gpt-4o-mini` → MiniMax `speech_2_6_turbo` / `English_captivating_female1`.
-Agent VAD is configured for interruptions (`interrupt_duration_ms=160`,
-`prefix_padding_ms=300`) and turn-end silence (`silence_duration_ms=480`).
+The voice chain is Deepgram Nova-3 multilingual mode (`language="multi"`,
+hints `en`, `hi`, `kn`, and `te`) → OpenAI `gpt-4o-mini` → Murf Falcon 2.1
+(`Pooja`) when `MURF_API_KEY` is configured. The selected language maps to
+`en-IN`, `hi-IN`, `kn-IN`, or `te-IN`. Without Murf, English and Hindi use the
+managed MiniMax voice; Kannada and Telugu starts return a clear configuration
+error. The selected response language is fixed per session, while multilingual
+ASR can recognize code-switching. Agent VAD remains configured for interruptions
+(`interrupt_duration_ms=160`, `prefix_padding_ms=300`) and turn-end silence
+(`silence_duration_ms=480`).
 
 ## How `/api/*` Reaches FastAPI
 
@@ -67,7 +72,7 @@ If `AGENT_BACKEND_URL` is unset/empty, **no rewrites register** — the client c
 - Routes registered on an `APIRouter`: `GET /get_config`, `POST /startAgent`, `POST /stopAgent`.
 - Session tickets are HMAC-signed with a domain-separated key derived from the server-only App Certificate. Renewal, start, and stop bind to the ticket claims.
 - All successful responses use the envelope `{ "code": 0, "msg": "success", "data": ... }`.
-- Errors funnel through `_to_http_error` → `HTTPException` (`ValueError → 400`, `RuntimeError → 500`, else `500`).
+- Errors funnel through `_to_http_error` → `HTTPException`; invalid input returns `400`, missing language-provider configuration returns `503`, and unexpected provider errors remain sanitized.
 - `uvicorn.run(app, host="0.0.0.0", port=PORT)` under `if __name__ == "__main__":`.
 
 `server/src/agent.py`:
@@ -80,9 +85,9 @@ If `AGENT_BACKEND_URL` is unset/empty, **no rewrites register** — the client c
 
 | Stage | Vendor       | Config highlights                                                          |
 | ----- | ------------ | -------------------------------------------------------------------------- |
-| STT   | `DeepgramSTT`| `model="nova-3"`, `language="en"`                                           |
+| STT   | `DeepgramSTT`| `model="nova-3"`, `language="multi"`, language hints `en`, `hi`, `kn`, `te` |
 | LLM   | `OpenAI`     | `model="gpt-4o-mini"`, greeting/failure overrides, history settings        |
-| TTS   | `MiniMaxTTS` | `model="speech_2_6_turbo"`, `voice_id="English_captivating_female1"`        |
+| TTS   | `MurfTTS` / `MiniMaxTTS` | Murf Falcon 2.1 / Pooja with selected locale; MiniMax fallback for English and Hindi |
 | VAD   | Agora        | Tunable `turn_detection` dict with start/end mode and timing thresholds    |
 
 Agent parameters: `data_channel="rtm"`, `enable_error_message=True`, `enable_metrics=True`. Advanced features: `{"enable_rtm": True, "enable_tools": False}`. Session options: `enable_string_uid=False`, `idle_timeout=30`, `expires_in=3600`.

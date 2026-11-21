@@ -9,7 +9,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { QuickstartPreCallCard } from "@/components/QuickstartPreCallCard";
 import { ShareButton } from "@/components/share-button";
-import { getConfig, startAgent, stopAgent } from "@/services/api";
+import {
+	getConfig,
+	startAgent,
+	stopAgent,
+	type VoiceLanguage,
+} from "@/services/api";
 import type { AgoraRenewalTokens, AgoraTokenData } from "@/types/conversation";
 
 const ConversationComponent = dynamic(
@@ -97,6 +102,7 @@ export default function LandingPage() {
 	const [rtmClient, setRtmClient] = useState<RTMClient | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [language, setLanguage] = useState<VoiceLanguage>("en");
 
 	useEffect(() => {
 		import("agora-rtc-react").catch(() => {});
@@ -117,6 +123,7 @@ export default function LandingPage() {
 					Number(config.agent_uid),
 					Number(config.uid),
 					config.session_ticket,
+					language,
 				),
 				(async () => {
 					const { default: AgoraRTM } = await import("agora-rtm");
@@ -173,7 +180,11 @@ export default function LandingPage() {
 			});
 			setShowConversation(true);
 		} catch (nextError) {
-			setError("Failed to start conversation. Please try again.");
+			setError(
+				nextError instanceof Error
+					? nextError.message
+					: "Failed to start conversation. Please try again.",
+			);
 			console.error("Error starting conversation:", nextError);
 		} finally {
 			setIsLoading(false);
@@ -251,6 +262,8 @@ export default function LandingPage() {
 						<QuickstartPreCallCard
 							isLoading={isLoading}
 							error={error}
+							language={language}
+							onLanguageChange={setLanguage}
 							onStartConversation={handleStartConversation}
 						/>
 					) : agoraData && rtmClient ? (

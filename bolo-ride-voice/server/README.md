@@ -85,9 +85,12 @@ agora quickstart env write ..
 **Note**: The service generates RTC/RTM tokens from `AGORA_APP_ID` and
 `AGORA_APP_CERTIFICATE`, and signs short-lived session tickets using a
 domain-separated key derived from the certificate. Both secrets stay server
-side. The managed chain is `DeepgramSTT` (`nova-3`, English) +
-`OpenAI` (`gpt-4o-mini`) + `MiniMaxTTS`
-(`speech_2_6_turbo` / `English_captivating_female1`).
+side. Speech recognition uses Deepgram Nova-3 multilingual mode with English,
+Hindi, Kannada, and Telugu hints; the LLM is `gpt-4o-mini`. English and Hindi
+use the managed MiniMax voice when Murf is not configured. If `MURF_API_KEY` is
+set, Murf Falcon 2.1's `Pooja` voice is used with the selected locale
+(`en-IN`, `hi-IN`, `kn-IN`, or `te-IN`). Kannada and Telugu voice output require
+`MURF_API_KEY`.
 
 To enable booking tools, configure all three server-only values:
 
@@ -97,6 +100,8 @@ To enable booking tools, configure all three server-only values:
 - `AGENT_PUBLIC_URL` - absolute HTTP(S) URL through which Agora's service can
   reach this FastAPI instance. Local voice-agent tests require a public HTTPS
   tunnel; `localhost` is not reachable by Agora.
+- `MURF_API_KEY` - optional server-only Murf key; required for Kannada and
+  Telugu TTS and used for all selected languages when configured.
 
 The Agora service exposes a narrow REST tool set backed by the business API:
 validate details, estimate fare, create/retrieve/cancel a booking, and create,
@@ -148,7 +153,7 @@ curl http://localhost:8000/get_config
 # Start and stop requests must include the returned session ticket and session identity.
 # Use the browser flow or the FastAPI /docs page to copy values from each response.
 #
-# POST /startAgent: channelName, rtcUid, userUid, sessionTicket
+# POST /startAgent: channelName, rtcUid, userUid, sessionTicket, optional language
 # POST /stopAgent: agentId, channelName, userUid, sessionTicket
 #
 # Do not log, commit, or share session tickets.
@@ -162,9 +167,11 @@ curl http://localhost:8000/get_config
   ticket bound to the returned agent ID.
 - `POST /stopAgent` - Stop only the agent ID bound to its session ticket.
 
-The browser renews the same concrete RTC/RTM UID before the one-hour token
-expires. FastAPI restricts CORS through `AGENT_ALLOWED_ORIGINS`; this does not
-replace product authentication or rate limiting.
+The browser selects a conversation language before the agent starts. That
+language is fixed for the session; Deepgram multilingual recognition accepts
+English, Hindi, Kannada, Telugu, and natural language switching. FastAPI
+restricts CORS through `AGENT_ALLOWED_ORIGINS`; this does not replace product
+authentication or rate limiting.
 
 The repo-level `bun run verify:local:fastapi` check exercises this FastAPI app through the Next proxy path, but it swaps in a fake agent implementation so route wiring can be verified without depending on a live agent start. Python unit tests use fake Agora sessions and a fake business API; passing them does not verify a live Agora call or public tunnel.
 

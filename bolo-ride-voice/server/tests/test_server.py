@@ -23,6 +23,16 @@ def test_get_config_returns_secure_session_envelope(client):
     assert "fedcba9876543210fedcba9876543210" not in response.text
 
 
+def test_get_config_never_exposes_murf_provider_key(client, monkeypatch):
+    provider_key = "test-murf-key-not-for-clients"
+    monkeypatch.setenv("MURF_API_KEY", provider_key)
+
+    response = client.get("/get_config")
+
+    assert response.status_code == 200
+    assert provider_key not in response.text
+
+
 def test_get_config_requires_ticket_to_select_channel_or_uid(client):
     response = client.get("/get_config", params={"uid": 4321, "channel": "chosen-channel"})
     assert response.status_code == 400
@@ -101,7 +111,7 @@ def test_start_agent_requires_and_binds_session_ticket(client):
     assert body["data"]["agent_id"] == f"fake-agent-{data['agent_uid']}"
     assert body["data"]["session_ticket"] != data["session_ticket"]
     assert client.fake_agent.started == [
-        (data["channel_name"], int(data["agent_uid"]), int(data["uid"]), None)
+        (data["channel_name"], int(data["agent_uid"]), int(data["uid"]), None, "en")
     ]
 
 
@@ -118,6 +128,9 @@ def test_start_agent_rejects_ticket_replay_and_returns_same_start(client):
     assert first.status_code == second.status_code == 200
     assert first.json()["data"] == second.json()["data"]
     assert len(client.fake_agent.started) == 1
+
+    changed_language = client.post("/startAgent", json={**payload, "language": "hi"})
+    assert changed_language.status_code == 409
 
 
 def test_start_agent_rejects_wrong_session(client):
@@ -143,6 +156,7 @@ def test_start_agent_forwards_output_audio_codec(client):
             "rtcUid": int(data["agent_uid"]),
             "userUid": int(data["uid"]),
             "sessionTicket": data["session_ticket"],
+            "language": "kn",
             "parameters": {"output_audio_codec": "opus"},
         },
     )
@@ -151,7 +165,50 @@ def test_start_agent_forwards_output_audio_codec(client):
         int(data["agent_uid"]),
         int(data["uid"]),
         "opus",
+        "kn",
     )
+
+
+def test_start_agent_rejects_unsupported_language(client):
+    data = get_session_config(client)
+    response = client.post(
+        "/startAgent",
+        json={
+            "channelName": data["channel_name"],
+            "rtcUid": int(data["agent_uid"]),
+            "userUid": int(data["uid"]),
+            "sessionTicket": data["session_ticket"],
+            "language": "fr",
+        },
+    )
+    assert response.status_code == 422
+    assert client.fake_agent.started == []
+
+
+def test_start_agent_reports_missing_language_voice_configuration(client, server_module):
+    class LanguageAgent:
+        async def start(self, **kwargs):
+            raise server_module.VoiceLanguageNotConfiguredError(
+                "MURF_API_KEY is required for Kannada and Telugu voice output."
+            )
+
+        async def stop(self, agent_id):
+            pass
+
+    data = get_session_config(client)
+    server_module.agent = LanguageAgent()
+    response = client.post(
+        "/startAgent",
+        json={
+            "channelName": data["channel_name"],
+            "rtcUid": int(data["agent_uid"]),
+            "userUid": int(data["uid"]),
+            "sessionTicket": data["session_ticket"],
+            "language": "kn",
+        },
+    )
+    assert response.status_code == 503
+    assert "MURF_API_KEY is required" in response.json()["detail"]
 
 
 def test_stop_agent_requires_ticket_bound_to_agent(client):
